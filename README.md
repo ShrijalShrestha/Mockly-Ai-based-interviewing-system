@@ -1,2 +1,2 @@
-# Movkly-Ai-based-interviewing-
-Movkly-Ai based interviewing system 
+# Mockly-Ai-based-interviewing-
+Mockly-Ai based interviewing system 
