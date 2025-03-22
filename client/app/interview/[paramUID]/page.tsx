@@ -191,7 +191,8 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
 
       // Optional: Set a better voice if available
       const voices = window.speechSynthesis.getVoices()
-      const preferredVoice = voices.find((voice) => voice.name.includes("Google") || voice.name.includes("Female"))
+      const preferredVoice = voices.find(voice => voice.name.includes("Google UK English Female"));
+
       if (preferredVoice) {
         utterance.voice = preferredVoice
       }
