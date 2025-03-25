@@ -140,7 +140,7 @@ export default function UploadPage() {
       }, 200)
 
       // Send the file to FastAPI backend
-      const response = await fetch(`${FASTAPI_URL}/upload-resume`, {
+      const response = await fetch(`${FASTAPI_URL}/upload_resume`, {
         method: "POST",
         body: formData,
       })

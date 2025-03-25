@@ -16,7 +16,7 @@ export async function uploadResume(file: File, userId: string) {
   formData.append("file", file)
   formData.append("user_id", userId)
 
-  const response = await fetch(`${FASTAPI_URL}/upload-resume`, {
+  const response = await fetch(`${FASTAPI_URL}/upload_resume`, {
     method: "POST",
     body: formData,
   })
