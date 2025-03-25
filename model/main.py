@@ -1,19 +1,21 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, Body, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import whisper
+from pymongo import MongoClient
+# import whisper
 import fitz
+import datetime
 import os
 import re
-from pymongo import MongoClient
 import json
-
+import uuid
 import warnings
 warnings.simplefilter("ignore", category=FutureWarning)
 
 from dotenv import load_dotenv
 from agents import question_crew, response_crew, score_crew
+from typing import List, Dict, Optional
 
 load_dotenv()
 
@@ -26,20 +28,36 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Enhanced session storage structure
+user_sessions: Dict[str, Dict[str, dict]] = {}
+
 class ResumeRequest(BaseModel):
+    user_id: str
     resume_text: str
+
+class Response(BaseModel):
+    question_id: str
+    text: str
+
+class Feedback(BaseModel):
+    question_id: str
+    text: str
+
+class Question(BaseModel):
+    id: str
+    text: str
 
 class MockInterview(BaseModel):
     user_id: str
-    questions: list[str]
-    responses: list[dict]
-    feedback: list[dict]
+    questions: List[Question]
+    responses: List[Response]
+    feedback: List[Feedback]
     total_time: float
     score: float
     evaluation: dict  
@@ -48,99 +66,234 @@ def extract_resume_text(pdf_file):
     doc = fitz.open(pdf_file)
     text = "".join(page.get_text() for page in doc)
     cleaned_text = re.sub(r'[^\w\s,.|:/-]', '', text)
-    
-    # Remove multiple spaces and newlines
     cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
-    
     return cleaned_text
 
-@app.post("/upload_resume/")
-async def upload_resume(file: UploadFile = File(...)):
-    temp_file_path = f"temp/{file.filename}"
-    os.makedirs("temp", exist_ok=True)
-
-    with open(temp_file_path, "wb") as temp_file:
-        temp_file.write(await file.read())
-
-    resume_text = extract_resume_text(temp_file_path)
-    os.remove(temp_file_path)
-
-    return {"parsed_data": resume_text}
-
-
-@app.post("/generate_questions/")
-async def generate_questions(request: ResumeRequest):
-    if not request.resume_text:
+async def generate_questions(resume: str):
+    if not resume:
         raise HTTPException(status_code=400, detail="Resume text is required")
 
     try:
-        result = question_crew.kickoff(inputs={"data": request.resume_text})
-        print("Crew Result (Raw):", repr(result))  # Debugging log
-
-        # Remove triple backticks and `json` prefix if present
+        result = question_crew.kickoff(inputs={"data": resume})
         if result.startswith("```json"):
-            result = result[7:-4].strip()  # Remove first 7 chars (```json\n) and last 4 (```\n)
-        
-        questions_data = json.loads(result)  # Safe JSON parsing
+            result = result[7:-4].strip()
+        questions_data = json.loads(result)
         
         if isinstance(questions_data, list):
-            questions_list = [q.get("question", "No question generated") for q in questions_data]
-            return {"questions": questions_list}
-
+            # Generate UUIDs for each question
+            return [{"id": str(uuid.uuid4()), "text": q.get("question", "No question generated")} 
+                    for q in questions_data]
         raise ValueError("Unexpected AI response format")
-
+    
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail=f"Error parsing AI response: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+@app.post("/upload_resume")
+async def upload_resume(file: UploadFile = File(...), user_id: str = Form(...)):
+    try:
+        session_id = str(uuid.uuid4())
+        temp_file_path = f"temp/{file.filename}"
+        os.makedirs("temp", exist_ok=True)
+
+        with open(temp_file_path, "wb") as temp_file:
+            temp_file.write(await file.read())
+
+        resume_text = extract_resume_text(temp_file_path)
+        os.remove(temp_file_path)
+
+        questions = await generate_questions(resume_text)
+
+        if user_id not in user_sessions:
+            user_sessions[user_id] = {}
+
+        user_sessions[user_id][session_id] = {
+            "questions": questions,
+            "current_question_index": 0,  # Track which question is being answered
+            "responses": [],            # Store responses in order
+            "feedback": [],              # Store feedback in order
+            "completed": False
+        }
+
+        return {
+            "message": "Resume processed", 
+            "session_id": session_id,
+            "questions": questions
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# @app.get("/interview/{user_id}/{session_id}")
+# async def get_interview_questions(user_id: str, session_id: str):
+#     if user_id not in user_sessions or session_id not in user_sessions[user_id]:
+#         raise HTTPException(status_code=404, detail="Interview session not found")
     
-@app.post("/process_audio/")
-async def process_audio(file: UploadFile = File(...)):
-    model = whisper.load_model("base")
-    temp_audio_path = f"temp/{file.filename}"
+#     session = user_sessions[user_id][session_id]
+#     if session["completed"]:
+#         return {"status": "completed", "message": "Interview already completed"}
     
-    with open(temp_audio_path, "wb") as temp_audio:
-        temp_audio.write(await file.read())
+#     current_index = session["current_question_index"]
+#     if current_index >= len(session["questions"]):
+#         session["completed"] = True
+#         return {"status": "completed", "message": "All questions have been answered"}
+    
+#     current_question = session["questions"][current_index]
+#     return {
+#         "session_id": session_id,
+#         "current_question": current_question,
+#         "progress": f"{current_index + 1}/{len(session['questions'])}"
+    # }
 
-    transcription = model.transcribe(temp_audio_path)["text"]
-    os.remove(temp_audio_path)
+@app.post("/process_interview_responses")
+async def process_interview_responses(
+    responses: List[Response] = Body(...),
+    user_id: str = Body(...),
+    session_id: str = Body(...)
+):
+    try:
+        # Validate session exists
+        if user_id not in user_sessions or session_id not in user_sessions[user_id]:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        session = user_sessions[user_id][session_id]
+        
+        # Validate all questions were answered
+        if len(responses) != len(session["questions"]):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Expected {len(session['questions'])} responses, got {len(responses)}"
+            )
+        
+        # Process each response and generate feedback
+        feedback_list = []
+        for response in responses:
+            # Find the corresponding question
+            question = next(
+                (q for q in session["questions"] if q["id"] == response.question_id),
+                None
+            )
+            if not question:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Question ID {response.question_id} not found in session"
+                )
+            
+            # Get evaluation for this question-response pair
+            evaluation = response_crew.kickoff(inputs={
+                "question": question["text"],
+                "response": response.text
+            })
+            
+            # Store the response and feedback
+            session["responses"].append({
+                "question_id": response.question_id,
+                "text": response.text
+            })
+            
+            feedback_list.append({
+                "question_id": response.question_id,
+                "text": evaluation
+            })
+        
+        session["feedback"] = feedback_list
+        session["completed"] = True
+        
+        # Generate overall evaluation
+        question_response_feedback = []
+        for i, question in enumerate(session["questions"]):
+            response = next(
+                (r for r in session["responses"] if r["question_id"] == question["id"]),
+                {"text": "No response recorded"}
+            )
+            feedback = next(
+                (f for f in feedback_list if f["question_id"] == question["id"]),
+                {"text": "No feedback available"}
+            )
+            
+            question_response_feedback.append({
+                "question": question["text"],
+                "response": response["text"],
+                "feedback": feedback["text"]
+            })
+        
+        overall_evaluation = score_crew.kickoff(inputs={"data": question_response_feedback})
+        session["score"] = overall_evaluation.get("score", 0)
+        session["evaluation"] = overall_evaluation
+        
+        return JSONResponse(content={
+            "status": "completed",
+            "feedback": feedback_list,
+            "score": session["score"],
+            "evaluation": overall_evaluation
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing interview: {str(e)}")
 
-    evaluation = response_crew.kickoff(inputs={"data": transcription})
-    return JSONResponse(content={"transcription": transcription, "evaluation": evaluation})
-
-@app.post("/save_mock_interview/")
-async def save_mock_interview(mock: MockInterview):
+@app.post("/complete_interview/{user_id}/{session_id}")
+async def complete_interview(user_id: str, session_id: str):
+    if user_id not in user_sessions or session_id not in user_sessions[user_id]:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session = user_sessions[user_id][session_id]
+    
+    # Prepare the data for final evaluation
     question_response_feedback = []
-    for response in mock.responses:
-        question_id = response["question_id"]
-        question_text = next((q["text"] for q in mock.questions if q["id"] == question_id), None)
-        feedback_text = next((f["text"] for f in mock.feedback if f["question_id"] == question_id), "No feedback available")
+    for i, question in enumerate(session["questions"]):
+        response = next(
+            (r for r in session["responses"] if r["question_id"] == question["id"]),
+            {"text": "No response recorded"}
+        )
+        feedback = next(
+            (f for f in session["feedback"] if f["question_id"] == question["id"]),
+            {"text": "No feedback available"}
+        )
         
         question_response_feedback.append({
-            "question": question_text,
+            "question": question["text"],
             "response": response["text"],
-            "feedback": feedback_text
+            "feedback": feedback["text"]
         })
-
-    evaluation = score_crew.kickoff(inputs={"data": question_response_feedback})
-    score = evaluation.get("score", 0)
-
-    result = collection.insert_one({
-        "user_id": mock.user_id,
-        "questions": mock.questions,
-        "responses": mock.responses,
-        "feedback": mock.feedback,
-        "total_time": mock.total_time,
+    
+    # Get overall evaluation
+    overall_evaluation = score_crew.kickoff(inputs={"data": question_response_feedback})
+    score = overall_evaluation.get("score", 0)
+    
+    # Prepare data for saving
+    mock_interview = {
+        "user_id": user_id,
+        "session_id": session_id,
+        "questions": session["questions"],
+        "responses": session["responses"],
+        "feedback": session["feedback"],
+        "total_time": 0,  # You might want to track this
         "score": score,
-        "evaluation": evaluation
-    })
-
-    return {"message": "Mock interview saved successfully", "id": str(result.inserted_id), "score": score}
+        "evaluation": overall_evaluation,
+        "timestamp": datetime.datetime.now()
+    }
+    
+    # Save to MongoDB
+    result = collection.insert_one(mock_interview)
+    
+    return {
+        "message": "Interview completed and saved successfully",
+        "score": score,
+        "evaluation": overall_evaluation,
+        "interview_id": str(result.inserted_id)
+    }
 
 @app.get("/get_mock_interview/{user_id}")
 async def get_mock_interview(user_id: str):
-    mock_interviews = list(collection.find({"user_id": user_id}, {"_id": 0}))
-    return {"mock_interviews": mock_interviews}
+    try:
+        mock_interviews = list(collection.find({"user_id": user_id}, {"_id": 0}))
+        if not mock_interviews:
+            raise HTTPException(status_code=404, detail="No mock interviews found for this user.")
+        return {"mock_interviews": mock_interviews}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving mock interviews: {str(e)}")
 
 @app.get("/")
 def root():
