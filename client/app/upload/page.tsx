@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+import { createHash } from 'crypto'
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
@@ -27,24 +28,8 @@ export default function UploadPage() {
   const router = useRouter()
   const { toast } = useToast()
 
-
-//---------------------------------------------------------------------------------------------
-
-
-
-
   // FastAPI endpoint URL - replace with your actual endpoint
-  const FASTAPI_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000"
-
-
-
-
-
-
-  // ---------------------------------------------------------------------------------------------
-
-
-
+  const FASTAPI_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://10.1.169.57:8000"
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -139,6 +124,25 @@ export default function UploadPage() {
         })
       }, 200)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      
+
+// ---------------------------------------------------------------------------------
+
       // Send the file to FastAPI backend
       const response = await fetch(`${FASTAPI_URL}/upload_resume`, {
         method: "POST",
@@ -153,6 +157,30 @@ export default function UploadPage() {
       }
 
       const data = await response.json()
+      console.log("Upload response:", data)
+
+
+
+
+// ---------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
       // Change to processing state (50-90%)
       setProcessingStatus("processing")
@@ -181,8 +209,13 @@ export default function UploadPage() {
         variant: "default",
       })
 
-      // Redirect to interview page with the session ID from the API
-      router.push(`/interview/${data.session_id || data.id || Math.random().toString(36).substring(2, 15)}`)
+
+
+
+
+
+      // Redirect to interview page with the session ID from the backend
+      router.push(`/interview/${data.session_id}`)
     } catch (error) {
       console.error("Upload error:", error)
       setProcessingStatus("error")
@@ -196,6 +229,11 @@ export default function UploadPage() {
       setIsUploading(false)
     }
   }
+
+
+
+
+
 
   if (loading) {
     return (
@@ -352,4 +390,3 @@ export default function UploadPage() {
     </div>
   )
 }
-
