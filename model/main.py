@@ -3,22 +3,24 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pymongo import MongoClient
-# import whisper
 import fitz
 import datetime
 import os
 import re
 import json
 import uuid
+
 import warnings
 warnings.simplefilter("ignore", category=FutureWarning)
 
 from dotenv import load_dotenv
-from agents import question_crew, response_crew, score_crew
-from typing import List, Dict, Optional
-
 load_dotenv()
 
+from typing import List, Dict
+from agents import question_crew, response_crew, score_crew
+
+
+# MongoDB Configuration
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client.ai_interview
@@ -37,6 +39,7 @@ app.add_middleware(
 # Enhanced session storage structure
 user_sessions: Dict[str, Dict[str, dict]] = {}
 
+# Pydantic Models
 class ResumeRequest(BaseModel):
     user_id: str
     resume_text: str
@@ -55,12 +58,14 @@ class Question(BaseModel):
 
 class MockInterview(BaseModel):
     user_id: str
+    session_id: str
     questions: List[Question]
     responses: List[Response]
     feedback: List[Feedback]
     total_time: float
     score: float
-    evaluation: dict  
+    evaluation: dict 
+    timestamp: datetime.datetime
 
 def extract_resume_text(pdf_file):
     doc = fitz.open(pdf_file)
@@ -90,10 +95,13 @@ async def generate_questions(resume: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
+# API Routes
 @app.post("/upload_resume")
 async def upload_resume(file: UploadFile = File(...), user_id: str = Form(...)):
     try:
+        print(user_id)
         session_id = str(uuid.uuid4())
+        print(session_id)
         temp_file_path = f"temp/{file.filename}"
         os.makedirs("temp", exist_ok=True)
 
@@ -110,9 +118,9 @@ async def upload_resume(file: UploadFile = File(...), user_id: str = Form(...)):
 
         user_sessions[user_id][session_id] = {
             "questions": questions,
-            "current_question_index": 0,  # Track which question is being answered
-            "responses": [],            # Store responses in order
-            "feedback": [],              # Store feedback in order
+            "current_question_index": 0,
+            "responses": [],
+            "feedback": [],
             "completed": False
         }
 
@@ -123,27 +131,6 @@ async def upload_resume(file: UploadFile = File(...), user_id: str = Form(...)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# @app.get("/interview/{user_id}/{session_id}")
-# async def get_interview_questions(user_id: str, session_id: str):
-#     if user_id not in user_sessions or session_id not in user_sessions[user_id]:
-#         raise HTTPException(status_code=404, detail="Interview session not found")
-    
-#     session = user_sessions[user_id][session_id]
-#     if session["completed"]:
-#         return {"status": "completed", "message": "Interview already completed"}
-    
-#     current_index = session["current_question_index"]
-#     if current_index >= len(session["questions"]):
-#         session["completed"] = True
-#         return {"status": "completed", "message": "All questions have been answered"}
-    
-#     current_question = session["questions"][current_index]
-#     return {
-#         "session_id": session_id,
-#         "current_question": current_question,
-#         "progress": f"{current_index + 1}/{len(session['questions'])}"
-    # }
 
 @app.post("/process_interview_responses")
 async def process_interview_responses(
@@ -269,7 +256,7 @@ async def complete_interview(user_id: str, session_id: str):
         "questions": session["questions"],
         "responses": session["responses"],
         "feedback": session["feedback"],
-        "total_time": 0,  # You might want to track this
+        "total_time": 0,
         "score": score,
         "evaluation": overall_evaluation,
         "timestamp": datetime.datetime.now()
@@ -298,3 +285,8 @@ async def get_mock_interview(user_id: str):
 @app.get("/")
 def root():
     return {"message": "AI Interview System is running!"}
+
+# Run the application
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="10.1.172.43", port=8000)
