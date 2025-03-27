@@ -1,9 +1,13 @@
 import { initializeApp } from "firebase/app"
 import { getAuth } from "firebase/auth"
 
+if(!process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
+  throw new Error("Missing Firebase API key in .env.local");
+}
+
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyC7couKed7nv9f_QyxpQ-qtg_UBmiht-os",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: "mockly-7e061.firebaseapp.com",
   projectId: "mockly-7e061",
   storageBucket: "mockly-7e061.firebasestorage.app",
