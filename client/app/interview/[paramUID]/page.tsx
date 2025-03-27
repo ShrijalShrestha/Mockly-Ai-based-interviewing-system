@@ -24,6 +24,11 @@ interface Message {
   timestamp: Date
 }
 
+interface Question {
+  id: string
+  text: string
+}
+
 export default function InterviewPage({ params }: { params: { paramUID: string } }) {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -33,7 +38,8 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
   const [audioEnabled, setAudioEnabled] = useState(true)
   const [messageInput, setMessageInput] = useState("")
   const [messages, setMessages] = useState<Message[]>([])
-  const [currentQuestion, setCurrentQuestion] = useState("")
+  const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
+  const [questions, setQuestions] = useState<Question[]>([])
   const [isAiTyping, setIsAiTyping] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isListening, setIsListening] = useState(false)
@@ -44,19 +50,135 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
   const streamRef = useRef<MediaStream | null>(null)
   const router = useRouter()
 
-  // Sample interview questions - in production these would come from CrewAI based on resume
-  const interviewQuestions = [
-    "Tell me about your experience with React and Next.js as mentioned in your resume.",
-    "I see you worked on a project using Firebase. Can you elaborate on your role and contributions?",
-    "Your resume mentions experience with state management. How do you decide between different state management solutions?",
-    "Can you describe the CI/CD pipeline you implemented as mentioned in your work experience?",
-    "Based on your resume, you have experience with TypeScript. How has it improved your development workflow?",
-  ]
+  const fetchQuestions = async (userId: string) => {
+    try {
+      // Validate userId and session ID
+      if (!userId || !params.paramUID) {
+        throw new Error("Missing user or session information");
+      }
+  
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_FASTAPI_URL}/question/${userId}/${params.paramUID}`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          // Add credentials if needed
+          // credentials: 'include',
+        }
+      );
+  
+      // Check for HTTP errors
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.message || 
+          `Request failed with status ${response.status}`
+        );
+      }
+  
+      const data = await response.json();
+  
+      // Validate response structure
+      if (!data || !Array.isArray(data.questions)) {
+        throw new Error("Invalid response format from server");
+      }
+  
+      if (data.questions.length === 0) {
+        throw new Error("No questions available for this interview");
+      }
+  
+      // Process and set questions
+      const validatedQuestions = data.questions.map((q: any) => ({
+        id: q.id,
+        text: q.text || "No question text available"
+      }));
+  
+      setQuestions(validatedQuestions);
+      setInitializing(false);
+      startInterviewFlow(validatedQuestions);
+  
+    } catch (error) {
+      console.error("Error fetching questions:", error);
+      
+      // Differentiate error messages
+      let errorMessage = "Failed to load interview questions";
+      if (error instanceof Error) {
+        errorMessage = error.message || errorMessage;
+      }
+  
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+  
+      // Fallback to empty questions but mark as initialized
+      setQuestions([]);
+      setInitializing(false);
+      startInterviewFlow([]);
+    }
+  };
+
+  const startInterviewFlow = (questions: Question[]) => {
+    setIsAiTyping(true)
+    
+    setTimeout(() => {
+      const welcomeMessage: Message = {
+        id: Date.now().toString(),
+        sender: "ai",
+        text: "Hello! I'm your AI interviewer today. I've analyzed your resume and prepared some personalized questions. Let's get started with the first question.",
+        timestamp: new Date(),
+      }
+      setMessages([welcomeMessage])
+      setIsAiTyping(false)
+
+      if (audioEnabled) speakText(welcomeMessage.text)
+
+      // Ask first question if available
+      if (questions.length > 0) {
+        setTimeout(() => {
+          askQuestion(questions[0])
+        }, 1000)
+      } else {
+        setTimeout(() => {
+          const noQuestionsMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            sender: "ai",
+            text: "I couldn't generate questions based on your resume. Please describe your experience and skills.",
+            timestamp: new Date(),
+          }
+          setMessages(prev => [...prev, noQuestionsMessage])
+          setIsAiTyping(false)
+          if (audioEnabled) speakText(noQuestionsMessage.text)
+        }, 1000)
+      }
+    }, 2000)
+  }
+
+  const askQuestion = (question: Question) => {
+    setIsAiTyping(true)
+    setCurrentQuestion(question)
+    
+    setTimeout(() => {
+      const questionMessage: Message = {
+        id: question.id,
+        sender: "ai",
+        text: question.text,
+        timestamp: new Date(),
+      }
+      setMessages(prev => [...prev, questionMessage])
+      setIsAiTyping(false)
+      if (audioEnabled) speakText(question.text)
+    }, 1500)
+  }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
         setUser(currentUser)
+        fetchQuestions(currentUser.uid)
       } else {
         router.push("/login")
       }
@@ -69,7 +191,6 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
   // Initialize camera and microphone
   useEffect(() => {
     if (!loading && videoRef.current) {
-      // Request access to camera and microphone
       navigator.mediaDevices
         .getUserMedia({
           video: videoEnabled,
@@ -81,7 +202,6 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
             videoRef.current.srcObject = stream
           }
 
-          // Initialize media recorder for audio
           const audioTracks = stream.getAudioTracks()
           if (audioTracks.length > 0) {
             const audioStream = new MediaStream([audioTracks[0]])
@@ -96,13 +216,9 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
             mediaRecorder.onstop = () => {
               const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" })
               audioChunksRef.current = []
-
-              // Convert audio to text using Speech Recognition API
               const speechRecognition = processAudioToText(audioBlob)
-
-              // Store the response in the database
               if (currentQuestion && speechRecognition) {
-                storeInterviewResponse(currentQuestion, speechRecognition)
+                storeInterviewResponse(currentQuestion.text, speechRecognition)
               }
             }
 
@@ -120,61 +236,11 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
     }
 
     return () => {
-      // Clean up media streams when component unmounts
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop())
       }
     }
   }, [loading, videoEnabled])
-
-  // Initialize the interview after loading
-  useEffect(() => {
-    if (!loading && initializing) {
-      // Simulate AI starting the conversation
-      setTimeout(() => {
-        setInitializing(false)
-        setIsAiTyping(true)
-
-        setTimeout(() => {
-          const welcomeMessage: Message = {
-            id: Date.now().toString(),
-            sender: "ai",
-            text: "Hello! I'm your AI interviewer today. I've analyzed your resume and prepared some personalized questions. Let's get started with the first question.",
-            timestamp: new Date(),
-          }
-          setMessages([welcomeMessage])
-          setIsAiTyping(false)
-
-          // Speak the welcome message
-          if (audioEnabled) {
-            speakText(welcomeMessage.text)
-          }
-
-          // Ask first question after a short delay
-          setTimeout(() => {
-            setIsAiTyping(true)
-            setTimeout(() => {
-              const firstQuestion = interviewQuestions[0]
-              setCurrentQuestion(firstQuestion)
-              const questionMessage: Message = {
-                id: (Date.now() + 1).toString(),
-                sender: "ai",
-                text: firstQuestion,
-                timestamp: new Date(),
-              }
-              setMessages((prev) => [...prev, questionMessage])
-              setIsAiTyping(false)
-
-              // Speak the first question
-              if (audioEnabled) {
-                speakText(firstQuestion)
-              }
-            }, 1500)
-          }, 1000)
-        }, 2000)
-      }, 2000)
-    }
-  }, [loading, initializing, audioEnabled])
 
   // Auto-scroll to bottom of messages
   useEffect(() => {
@@ -189,26 +255,18 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
       utterance.pitch = 1.0
       utterance.volume = 1.0
 
-      // Optional: Set a better voice if available
       const voices = window.speechSynthesis.getVoices()
-      const preferredVoice = voices.find(voice => voice.name.includes("Google UK English Female"));
-
-      if (preferredVoice) {
-        utterance.voice = preferredVoice
-      }
+      const preferredVoice = voices.find(voice => voice.name.includes("Google UK English Female"))
+      if (preferredVoice) utterance.voice = preferredVoice
 
       window.speechSynthesis.speak(utterance)
     }
   }
 
-  // Process audio to text (simulated - in production would use a real speech-to-text API)
   const processAudioToText = (audioBlob: Blob): string => {
-    // In a real implementation, you would send this blob to a speech-to-text service
-    // For now, we'll just return the message input as a simulation
     return messageInput
   }
 
-  // Store interview Q&A in database
   const storeInterviewResponse = async (question: string, answer: string) => {
     try {
       if (!user) return
@@ -221,13 +279,10 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
         answer,
         timestamp: serverTimestamp(),
       })
-
-      console.log("Response stored in database")
     } catch (error) {
       console.error("Error storing response:", error)
     }
   }
-
   // Start recording audio
   const startRecording = () => {
     if (mediaRecorderRef.current && !isRecording) {
@@ -260,7 +315,6 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
       startRecording()
     }
   }
-
   const handleSendMessage = () => {
     if (!messageInput.trim()) return
 
@@ -271,50 +325,48 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
       text: messageInput,
       timestamp: new Date(),
     }
-    setMessages((prev) => [...prev, userMessage])
+    setMessages(prev => [...prev, userMessage])
 
-    // Store the response in the database
+    // Store the response
     if (currentQuestion) {
-      storeInterviewResponse(currentQuestion, messageInput)
+      storeInterviewResponse(currentQuestion.text, messageInput)
     }
 
     setMessageInput("")
 
-    // Simulate AI thinking and responding
+    // Simulate AI response
     setIsAiTyping(true)
-    setTimeout(
-      () => {
-        // Get next question or follow-up
-        const currentIndex = interviewQuestions.indexOf(currentQuestion)
-        let aiResponse = ""
+    setTimeout(() => {
+      let aiResponse = ""
+      let nextQuestion: Question | null = null
 
-        if (currentIndex < interviewQuestions.length - 1) {
-          // Move to next question
-          const nextQuestion = interviewQuestions[currentIndex + 1]
-          setCurrentQuestion(nextQuestion)
-          aiResponse = `Thank you for your response. ${nextQuestion}`
+      if (currentQuestion) {
+        const currentIndex = questions.findIndex(q => q.id === currentQuestion.id)
+        if (currentIndex < questions.length - 1) {
+          nextQuestion = questions[currentIndex + 1]
+          aiResponse = `Thank you for your response. ${nextQuestion.text}`
         } else {
-          // End of interview
-          aiResponse =
-            "Thank you for completing all the questions. Your responses have been recorded. Is there anything else you'd like to add or ask me about the position?"
+          aiResponse = "Thank you for completing all the questions. Your responses have been recorded. Is there anything else you'd like to add?"
         }
+      } else {
+        aiResponse = "Thank you for your response. Can you tell me more about your experience?"
+      }
 
-        const aiMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          sender: "ai",
-          text: aiResponse,
-          timestamp: new Date(),
-        }
-        setMessages((prev) => [...prev, aiMessage])
-        setIsAiTyping(false)
+      const aiMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: "ai",
+        text: aiResponse,
+        timestamp: new Date(),
+      }
+      setMessages(prev => [...prev, aiMessage])
+      setIsAiTyping(false)
 
-        // Speak the AI response
-        if (audioEnabled) {
-          speakText(aiResponse)
-        }
-      },
-      2000 + Math.random() * 1000,
-    )
+      if (nextQuestion) {
+        setCurrentQuestion(nextQuestion)
+      }
+
+      if (audioEnabled) speakText(aiResponse)
+    }, 2000)
   }
 
   const toggleMic = () => {
@@ -380,7 +432,7 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
                   {/* Current question overlay */}
                   <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
                     <p className="text-sm text-gray-400">Current question:</p>
-                    <p className="text-white font-medium">{currentQuestion || "Preparing interview questions..."}</p>
+                    <p className="text-white font-medium">{currentQuestion ? currentQuestion.text : "Preparing interview questions..."}</p>
                   </div>
 
                   {/* Session info */}
