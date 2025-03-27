@@ -58,7 +58,7 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
       }
   
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_FASTAPI_URL}/question/${userId}/${params.paramUID}`,
+        `${process.env.NEXT_PUBLIC_FASTAPI_URL|| "http://127.0.0.1:8000"}/question/${userId}/${params.paramUID}`,
         {
           method: 'GET',
           headers: {

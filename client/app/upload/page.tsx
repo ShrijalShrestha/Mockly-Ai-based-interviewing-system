@@ -29,7 +29,7 @@ export default function UploadPage() {
   const { toast } = useToast()
 
   // FastAPI endpoint URL - replace with your actual endpoint
-  const FASTAPI_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://10.1.169.57:8000"
+  const FASTAPI_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://127.0.0.1:8000"
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
