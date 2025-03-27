@@ -1,2 +1,3 @@
 .env
 /myenv
+/model/__pycache__
