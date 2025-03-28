@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 try:
-    MONGO_URI = os.getenv("MONGO_URI")
+    MONGO_URI = "mongodb://127.0.0.1:27017"
     if not MONGO_URI:
         raise ValueError("MONGO_URI environment variable not set")
         
