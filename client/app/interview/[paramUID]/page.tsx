@@ -3,9 +3,8 @@
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
-import { auth, db } from "@/lib/firebase"
+import { auth } from "@/lib/firebase"
 import { onAuthStateChanged } from "firebase/auth"
-import { collection, addDoc, serverTimestamp } from "firebase/firestore"
 import { Loader2, Send, Mic, MicOff, Video, VideoOff, User, Bot, Volume2, VolumeX } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -16,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from "@/components/ui/use-toast"
+import { use } from "react"
 
 interface Message {
   id: string
@@ -29,7 +29,25 @@ interface Question {
   text: string
 }
 
-export default function InterviewPage({ params }: { params: { paramUID: string } }) {
+interface Answer {
+  questionId: string
+  text: string
+  timestamp: Date
+}
+
+// Declare SpeechRecognition interface
+declare global {
+  interface Window {
+    SpeechRecognition: any
+    webkitSpeechRecognition: any
+  }
+}
+
+export default function InterviewPage({ params }: { params: Promise<{ paramUID: string }> }) {
+  // Unwrap the params Promise using React.use()
+  const resolvedParams = use(params)
+  const paramUID = resolvedParams.paramUID
+
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [initializing, setInitializing] = useState(true)
@@ -40,90 +58,103 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
   const [messages, setMessages] = useState<Message[]>([])
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [questions, setQuestions] = useState<Question[]>([])
+  const [answers, setAnswers] = useState<Answer[]>([])
   const [isAiTyping, setIsAiTyping] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isListening, setIsListening] = useState(false)
+  const [isCompleting, setIsCompleting] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
+  const speechSynthesisRef = useRef<SpeechSynthesisUtterance | null>(null)
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
   const router = useRouter()
+
+  const [interviewData, setInterviewData] = useState<{
+    userId: string | null
+    sessionId: string
+    responses: {
+      questionId: string
+      questionText: string
+      answer: string
+      timestamp: Date
+    }[]
+  }>({
+    userId: null,
+    sessionId: paramUID,
+    responses: [],
+  })
 
   const fetchQuestions = async (userId: string) => {
     try {
       // Validate userId and session ID
-      if (!userId || !params.paramUID) {
-        throw new Error("Missing user or session information");
+      if (!userId || !paramUID) {
+        throw new Error("Missing user or session information")
       }
-  
+
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_FASTAPI_URL|| "http://127.0.0.1:8000"}/question/${userId}/${params.paramUID}`,
+        `${process.env.NEXT_PUBLIC_FASTAPI_URL || "http://127.0.0.1:8000"}/question/${userId}/${paramUID}`,
         {
-          method: 'GET',
+          method: "GET",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
-          // Add credentials if needed
-          // credentials: 'include',
-        }
-      );
-  
+        },
+      )
+
       // Check for HTTP errors
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          errorData.message || 
-          `Request failed with status ${response.status}`
-        );
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || `Request failed with status ${response.status}`)
       }
-  
-      const data = await response.json();
-  
+
+      const data = await response.json()
+
       // Validate response structure
       if (!data || !Array.isArray(data.questions)) {
-        throw new Error("Invalid response format from server");
+        throw new Error("Invalid response format from server")
       }
-  
+
       if (data.questions.length === 0) {
-        throw new Error("No questions available for this interview");
+        throw new Error("No questions available for this interview")
       }
-  
+
       // Process and set questions
       const validatedQuestions = data.questions.map((q: any) => ({
         id: q.id,
-        text: q.text || "No question text available"
-      }));
-  
-      setQuestions(validatedQuestions);
-      setInitializing(false);
-      startInterviewFlow(validatedQuestions);
-  
+        text: q.text || "No question text available",
+      }))
+
+      setQuestions(validatedQuestions)
+      setInitializing(false)
+      startInterviewFlow(validatedQuestions)
     } catch (error) {
-      console.error("Error fetching questions:", error);
-      
+      console.error("Error fetching questions:", error)
+
       // Differentiate error messages
-      let errorMessage = "Failed to load interview questions";
+      let errorMessage = "Failed to load interview questions"
       if (error instanceof Error) {
-        errorMessage = error.message || errorMessage;
+        errorMessage = error.message || errorMessage
       }
-  
+
       toast({
         title: "Error",
         description: errorMessage,
         variant: "destructive",
-      });
-  
+      })
+
       // Fallback to empty questions but mark as initialized
-      setQuestions([]);
-      setInitializing(false);
-      startInterviewFlow([]);
+      setQuestions([])
+      setInitializing(false)
+      startInterviewFlow([])
     }
-  };
+  }
 
   const startInterviewFlow = (questions: Question[]) => {
     setIsAiTyping(true)
-    
+
     setTimeout(() => {
       const welcomeMessage: Message = {
         id: Date.now().toString(),
@@ -149,7 +180,7 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
             text: "I couldn't generate questions based on your resume. Please describe your experience and skills.",
             timestamp: new Date(),
           }
-          setMessages(prev => [...prev, noQuestionsMessage])
+          setMessages((prev) => [...prev, noQuestionsMessage])
           setIsAiTyping(false)
           if (audioEnabled) speakText(noQuestionsMessage.text)
         }, 1000)
@@ -160,7 +191,7 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
   const askQuestion = (question: Question) => {
     setIsAiTyping(true)
     setCurrentQuestion(question)
-    
+
     setTimeout(() => {
       const questionMessage: Message = {
         id: question.id,
@@ -168,7 +199,7 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
         text: question.text,
         timestamp: new Date(),
       }
-      setMessages(prev => [...prev, questionMessage])
+      setMessages((prev) => [...prev, questionMessage])
       setIsAiTyping(false)
       if (audioEnabled) speakText(question.text)
     }, 1500)
@@ -185,7 +216,61 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
       setLoading(false)
     })
 
-    return () => unsubscribe()
+    // Initialize speech recognition
+    if ("SpeechRecognition" in window || "webkitSpeechRecognition" in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+      recognitionRef.current = new SpeechRecognition()
+      recognitionRef.current.continuous = true
+      recognitionRef.current.interimResults = true
+
+      recognitionRef.current.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .map((result) => result[0])
+          .map((result) => result.transcript)
+          .join("")
+
+        setMessageInput(transcript)
+      }
+
+      recognitionRef.current.onerror = (event) => {
+        console.error("Speech recognition error", event.error)
+        setIsListening(false)
+        toast({
+          title: "Speech Recognition Error",
+          description: `Error: ${event.error}. Please try again.`,
+          variant: "destructive",
+        })
+      }
+    }
+
+    // Initialize speech synthesis voices
+    if ("speechSynthesis" in window) {
+      // Load voices
+      const loadVoices = () => {
+        window.speechSynthesis.getVoices()
+      }
+
+      loadVoices()
+
+      // Chrome needs this event to load voices
+      if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = loadVoices
+      }
+    }
+
+    return () => {
+      unsubscribe()
+
+      // Clean up speech recognition
+      if (recognitionRef.current) {
+        recognitionRef.current.abort()
+      }
+
+      // Clean up speech synthesis
+      if (speechSynthesisRef.current) {
+        window.speechSynthesis.cancel()
+      }
+    }
   }, [router])
 
   // Initialize camera and microphone
@@ -216,9 +301,11 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
             mediaRecorder.onstop = () => {
               const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" })
               audioChunksRef.current = []
-              const speechRecognition = processAudioToText(audioBlob)
-              if (currentQuestion && speechRecognition) {
-                storeInterviewResponse(currentQuestion.text, speechRecognition)
+
+              // We'll use the transcript from the speech recognition instead
+              if (currentQuestion && messageInput) {
+                storeInterviewResponse(currentQuestion.text, messageInput)
+                handleSendMessage()
               }
             }
 
@@ -247,74 +334,213 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  // Text-to-speech function
+  // Text-to-speech function with improved reliability
   const speakText = (text: string) => {
     if ("speechSynthesis" in window) {
+      // Cancel any ongoing speech
+      window.speechSynthesis.cancel()
+
+      // Create a new utterance
       const utterance = new SpeechSynthesisUtterance(text)
       utterance.rate = 1.0
       utterance.pitch = 1.0
       utterance.volume = 1.0
 
+      // Get available voices and select a preferred one
       const voices = window.speechSynthesis.getVoices()
-      const preferredVoice = voices.find(voice => voice.name.includes("Google UK English Female"))
-      if (preferredVoice) utterance.voice = preferredVoice
+      const preferredVoice = voices.find(
+        (voice) =>
+          voice.name.includes("Google UK English Female") ||
+          voice.name.includes("Female") ||
+          voice.name.includes("Samantha"),
+      )
 
+      if (preferredVoice) {
+        utterance.voice = preferredVoice
+      }
+
+      // Add event handlers to track speech progress
+      utterance.onend = () => {
+        console.log("Speech synthesis finished")
+        speechSynthesisRef.current = null
+      }
+
+      utterance.onerror = (event) => {
+        console.error("Speech synthesis error", event)
+        speechSynthesisRef.current = null
+
+        // Attempt to restart if there was an error
+        if (audioEnabled) {
+          setTimeout(() => {
+            speakText(text)
+          }, 100)
+        }
+      }
+
+      utterance.onpause = () => {
+        console.log("Speech synthesis paused")
+      }
+
+      utterance.onboundary = (event) => {
+        console.log("Speech boundary reached", event)
+      }
+
+      // Store reference to current utterance
+      speechSynthesisRef.current = utterance
+
+      // Start speaking
       window.speechSynthesis.speak(utterance)
-    }
-  }
 
-  const processAudioToText = (audioBlob: Blob): string => {
-    return messageInput
+      // Chrome has a bug where speech can stop after ~15 seconds
+      // This is a workaround to keep it going
+      const resumeSpeechSynthesis = () => {
+        if (speechSynthesisRef.current && audioEnabled) {
+          if (window.speechSynthesis.paused) {
+            window.speechSynthesis.resume()
+          }
+        }
+      }
+
+      // Check every second if speech synthesis is paused and resume it
+      const intervalId = setInterval(resumeSpeechSynthesis, 1000)
+
+      // Clear interval when speech is done
+      utterance.onend = () => {
+        clearInterval(intervalId)
+        speechSynthesisRef.current = null
+      }
+
+      utterance.onerror = (event) => {
+        clearInterval(intervalId)
+        console.error("Speech synthesis error", event)
+        speechSynthesisRef.current = null
+      }
+    }
   }
 
   const storeInterviewResponse = async (question: string, answer: string) => {
     try {
-      if (!user) return
+      if (!user || !currentQuestion) return
 
-      const interviewRef = collection(db, "interviews")
-      await addDoc(interviewRef, {
-        userId: user.uid,
-        sessionId: params.paramUID,
+      // Add to local answers array
+      const newAnswer: Answer = {
+        questionId: currentQuestion.id,
+        text: answer,
+        timestamp: new Date(),
+      }
+
+      setAnswers((prev) => [...prev, newAnswer])
+
+      // Update the comprehensive interview data
+      setInterviewData((prev) => {
+        // Check if this question already has a response
+        const existingResponseIndex = prev.responses.findIndex((r) => r.questionId === currentQuestion.id)
+
+        // Create a new responses array
+        const newResponses = [...prev.responses]
+
+        // If response exists, update it
+        if (existingResponseIndex >= 0) {
+          newResponses[existingResponseIndex] = {
+            questionId: currentQuestion.id,
+            questionText: question,
+            answer: answer,
+            timestamp: new Date(),
+          }
+        } else {
+          // Otherwise add a new response
+          newResponses.push({
+            questionId: currentQuestion.id,
+            questionText: question,
+            answer: answer,
+            timestamp: new Date(),
+          })
+        }
+
+        return {
+          ...prev,
+          userId: user.uid,
+          responses: newResponses,
+        }
+      })
+
+      // Log for testing
+      console.log("Storing response:", {
+        questionId: currentQuestion.id,
         question,
         answer,
-        timestamp: serverTimestamp(),
+        timestamp: new Date(),
       })
+
+      console.log("Response stored successfully")
+
+      // Log the updated interview data
+      setTimeout(() => {
+        console.log("Current interview data:", interviewData)
+      }, 100)
     } catch (error) {
       console.error("Error storing response:", error)
-    }
-  }
-  // Start recording audio
-  const startRecording = () => {
-    if (mediaRecorderRef.current && !isRecording) {
-      audioChunksRef.current = []
-      mediaRecorderRef.current.start()
-      setIsRecording(true)
-      setIsListening(true)
-
       toast({
-        title: "Recording started",
-        description: "Speak your answer clearly. Recording will stop automatically after you finish.",
+        title: "Error",
+        description: "Failed to save your response. Please try again.",
+        variant: "destructive",
       })
     }
   }
 
-  // Stop recording audio
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
-      setIsListening(false)
+  // Start speech recognition
+  const startSpeechRecognition = () => {
+    if (recognitionRef.current && !isListening) {
+      try {
+        recognitionRef.current.start()
+        setIsListening(true)
+        setIsRecording(true)
+
+        toast({
+          title: "Listening",
+          description: "Speak your answer clearly. Click stop when finished.",
+        })
+      } catch (error) {
+        console.error("Error starting speech recognition:", error)
+        toast({
+          title: "Error",
+          description: "Could not start speech recognition. Please try again.",
+          variant: "destructive",
+        })
+      }
+    }
+  }
+
+  // Stop speech recognition
+  const stopSpeechRecognition = () => {
+    if (recognitionRef.current && isListening) {
+      try {
+        recognitionRef.current.stop()
+        setIsListening(false)
+        setIsRecording(false)
+
+        // If we have a transcript, automatically send it
+        if (messageInput.trim()) {
+          if (currentQuestion) {
+            storeInterviewResponse(currentQuestion.text, messageInput)
+            handleSendMessage()
+          }
+        }
+      } catch (error) {
+        console.error("Error stopping speech recognition:", error)
+      }
     }
   }
 
   // Toggle speech recognition
   const toggleSpeechRecognition = () => {
     if (isListening) {
-      stopRecording()
+      stopSpeechRecognition()
     } else {
-      startRecording()
+      startSpeechRecognition()
     }
   }
+
   const handleSendMessage = () => {
     if (!messageInput.trim()) return
 
@@ -325,11 +551,14 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
       text: messageInput,
       timestamp: new Date(),
     }
-    setMessages(prev => [...prev, userMessage])
+    setMessages((prev) => [...prev, userMessage])
 
-    // Store the response
+    // Store the response if not already stored
     if (currentQuestion) {
-      storeInterviewResponse(currentQuestion.text, messageInput)
+      const hasAnswered = answers.some((a) => a.questionId === currentQuestion.id)
+      if (!hasAnswered) {
+        storeInterviewResponse(currentQuestion.text, messageInput)
+      }
     }
 
     setMessageInput("")
@@ -341,12 +570,13 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
       let nextQuestion: Question | null = null
 
       if (currentQuestion) {
-        const currentIndex = questions.findIndex(q => q.id === currentQuestion.id)
+        const currentIndex = questions.findIndex((q) => q.id === currentQuestion.id)
         if (currentIndex < questions.length - 1) {
           nextQuestion = questions[currentIndex + 1]
           aiResponse = `Thank you for your response. ${nextQuestion.text}`
         } else {
-          aiResponse = "Thank you for completing all the questions. Your responses have been recorded. Is there anything else you'd like to add?"
+          aiResponse =
+            "Thank you for completing all the questions. Your responses have been recorded. Is there anything else you'd like to add?"
         }
       } else {
         aiResponse = "Thank you for your response. Can you tell me more about your experience?"
@@ -358,7 +588,7 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
         text: aiResponse,
         timestamp: new Date(),
       }
-      setMessages(prev => [...prev, aiMessage])
+      setMessages((prev) => [...prev, aiMessage])
       setIsAiTyping(false)
 
       if (nextQuestion) {
@@ -391,6 +621,66 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
     setAudioEnabled(!audioEnabled)
     if (audioEnabled) {
       window.speechSynthesis.cancel() // Stop any ongoing speech
+    }
+  }
+
+  // Function to complete the interview and send all data to the FastAPI endpoint
+  const completeInterview = async () => {
+    if (!user) return
+
+    try {
+      setIsCompleting(true)
+
+      // Log all answers for testing
+      console.log("Answers to be submitted:", answers)
+
+      // Log the complete interview data
+      console.log("Complete interview data:", {
+        userId: user.uid,
+        sessionId: paramUID,
+        responses: interviewData.responses,
+        totalQuestions: questions.length,
+        answeredQuestions: interviewData.responses.length,
+      })
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_FASTAPI_URL || "http://127.0.0.1:8000"}/complete_interview/${user.uid}/${paramUID}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(interviewData),
+        },
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || `Request failed with status ${response.status}`)
+      }
+
+      const data = await response.json()
+      console.log("Interview completed successfully:", data)
+
+      toast({
+        title: "Interview Completed",
+        description: `Your interview has been completed with a score of ${data.score}/10.`,
+      })
+
+      // Navigate to dashboard after a short delay
+      setTimeout(() => {
+        router.push(`/dashboard?interview=${data.interview_id}`)
+      }, 2000)
+    } catch (error) {
+      console.error("Error completing interview:", error)
+
+      toast({
+        title: "Error",
+        description: "Failed to complete the interview. Please try again.",
+        variant: "destructive",
+      })
+
+      setIsCompleting(false)
     }
   }
 
@@ -432,13 +722,15 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
                   {/* Current question overlay */}
                   <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
                     <p className="text-sm text-gray-400">Current question:</p>
-                    <p className="text-white font-medium">{currentQuestion ? currentQuestion.text : "Preparing interview questions..."}</p>
+                    <p className="text-white font-medium">
+                      {currentQuestion ? currentQuestion.text : "Preparing interview questions..."}
+                    </p>
                   </div>
 
                   {/* Session info */}
                   <div className="absolute top-4 left-4 flex items-center gap-2">
                     <Badge variant="outline" className="bg-gray-900/80 text-white border-gray-700">
-                      Session: {params.paramUID.substring(0, 8)}
+                      Session: {paramUID.substring(0, 8)}
                     </Badge>
                     <Badge variant="outline" className="bg-red-900/80 text-white border-red-700 animate-pulse">
                       REC
@@ -494,8 +786,20 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
                   >
                     {isListening ? "Stop Recording" : "Record Answer"}
                   </Button>
-                  <Button variant="destructive" className="rounded-full px-6" onClick={() => router.push("/dashboard")}>
-                    End Interview
+                  <Button
+                    variant="destructive"
+                    className="rounded-full px-6"
+                    onClick={completeInterview}
+                    disabled={isCompleting}
+                  >
+                    {isCompleting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Completing...
+                      </>
+                    ) : (
+                      "End Interview"
+                    )}
                   </Button>
                 </div>
               </CardContent>
@@ -609,6 +913,7 @@ export default function InterviewPage({ params }: { params: { paramUID: string }
                             size="icon"
                             className="h-auto bg-blue-600 hover:bg-blue-700"
                             onClick={handleSendMessage}
+                            disabled={!messageInput.trim()}
                           >
                             <Send className="h-4 w-4" />
                           </Button>
