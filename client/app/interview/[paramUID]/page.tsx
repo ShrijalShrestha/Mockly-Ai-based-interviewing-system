@@ -643,6 +643,8 @@ export default function InterviewPage({ params }: { params: Promise<{ paramUID: 
         answeredQuestions: interviewData.responses.length,
       })
 
+      // Send the interview data to the FastAPI endpoint--------------------------------------------
+
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_FASTAPI_URL || "http://127.0.0.1:8000"}/complete_interview/${user.uid}/${paramUID}`,
         {
@@ -666,6 +668,25 @@ export default function InterviewPage({ params }: { params: Promise<{ paramUID: 
         title: "Interview Completed",
         description: `Your interview has been completed with a score of ${data.score}/10.`,
       })
+
+
+
+
+// -------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
       // Navigate to dashboard after a short delay
       setTimeout(() => {
