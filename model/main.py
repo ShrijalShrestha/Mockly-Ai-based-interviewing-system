@@ -2,12 +2,12 @@ from fastapi import FastAPI, UploadFile, File, Form, Body, HTTPException
 # from fastapi.responses import JSONResponse
 from pymongo import MongoClient, errors as mongo_errors
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime, timedelta
 from pydantic import BaseModel
 import fitz
 import os
 import re
 import json
-import datetime
 import logging
 import uuid
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 try:
-    MONGO_URI = "mongodb://127.0.0.1:27017"
+    MONGO_URI = os.getenv("MONGO_URI") or "mongodb://127.0.0.1:27017"
     if not MONGO_URI:
         raise ValueError("MONGO_URI environment variable not set")
         
@@ -76,7 +76,7 @@ class MockInterview(BaseModel):
     total_time: float
     score: float
     evaluation: dict 
-    timestamp: datetime.datetime
+    timestamp: datetime
 
 def extract_resume_text(pdf_file: UploadFile) -> str:
     """Extract and clean text from PDF resume."""
@@ -89,6 +89,16 @@ def extract_resume_text(pdf_file: UploadFile) -> str:
         logger.error(f"Error extracting resume text: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid PDF file")
 
+# def clean_json_output(json_str: str) -> dict:
+#     """Clean JSON string by removing markdown code fences and parsing."""
+#     try:
+#         # Remove markdown code fences if present
+#         json_str = json_str.replace('```json', '').replace('```', '').strip()
+#         return json.loads(json_str)
+#     except json.JSONDecodeError:
+#         logger.error(f"Failed to parse JSON: {json_str}")
+#         return {"error": "Invalid evaluation format"}
+    
 async def generate_questions(resume: str) -> List[dict]:
     """Generate interview questions from resume text."""
     if not resume:
@@ -148,7 +158,7 @@ async def upload_resume(file: UploadFile = File(...), user_id: str = Form(...)):
             "responses": [],
             "feedback": [],
             "completed": False,
-            "timestamp": datetime.datetime.now()
+            "timestamp": datetime.now()
         }
 
         try:
@@ -217,13 +227,6 @@ async def process_interview_responses(
         if not interview_data:
             raise HTTPException(status_code=404, detail="Interview data not found")
 
-        # Validate response count
-        if len(responses) != len(interview_data["questions"]):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Expected {len(interview_data['questions'])} responses, got {len(responses)}"
-            )
-
         # Process responses
         feedback_list = []
         responses_to_store = []
@@ -249,7 +252,7 @@ async def process_interview_responses(
                 logger.error(f"Feedback generation failed: {str(e)}")
                 evaluation = "Could not generate feedback"
 
-            responses_to_store.append(response.dict())
+            responses_to_store.append(response.model_dump())
             feedback_list.append({
                 "question_id": response.question_id,
                 "text": evaluation
@@ -260,13 +263,60 @@ async def process_interview_responses(
                 "feedback": evaluation
             })
 
+        valid_pairs = [
+            pair for pair in question_response_pairs 
+            if pair["feedback"] and "Could not generate feedback" not in pair["feedback"]
+        ]
+
+        if not valid_pairs:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid responses available for evaluation"
+            )
+
         # Generate overall evaluation
+                # Generate overall evaluation
         try:
-            overall_evaluation = score_crew.kickoff(inputs={"data": question_response_pairs})
-            score = overall_evaluation.get("score", 0)
+            # Prepare simpler input structure that won't conflict with string formatting
+            evaluation_input = {
+                "interview_data": json.dumps({
+                    "pairs": valid_pairs,
+                    "metadata": {
+                        "user_id": user_id,
+                        "session_id": session_id
+                    }
+                })
+            }
+            
+            evaluation_output = score_crew.kickoff(inputs=evaluation_input)
+            logger.debug(f"Raw evaluation output: {evaluation_output}")
+            
+            # Handle case where output might be a string or dict
+            if isinstance(evaluation_output, str):
+                overall_evaluation = clean_json_output(evaluation_output)
+            else:
+                overall_evaluation = evaluation_output
+                
+            if not isinstance(overall_evaluation, dict):
+                raise ValueError("Evaluation output is not a valid dictionary")
+                
+            score = overall_evaluation.get("overall_score", 0)
+            
+            # Standardize the evaluation structure
+            overall_evaluation = {
+                "score": score,
+                "breakdown": overall_evaluation.get("score_breakdown", {
+                    "technical skill": 0,
+                    "problem solving": 0,
+                    "communication": 0,
+                    "knowledge": 0
+                }),
+                "strengths": overall_evaluation.get("strengths", []),
+                "improvement_areas": overall_evaluation.get("improvement_areas", [])
+            }
         except Exception as e:
-            logger.error(f"Scoring failed: {str(e)}")
-            overall_evaluation = {"error": "Could not generate evaluation"}
+            logger.error(f"Scoring failed: {str(e)}", exc_info=True)
+            overall_evaluation = {"error": f"Evaluation generation failed: {str(e)}"}
             score = 0
 
         # Update database
@@ -280,7 +330,7 @@ async def process_interview_responses(
                         "score": score,
                         "evaluation": overall_evaluation,
                         "completed": True,
-                        "last_updated": datetime.datetime.now()
+                        "last_updated": datetime.now()
                     }
                 }
             )
@@ -314,58 +364,291 @@ async def process_interview_responses(
         logger.error(f"Unexpected error in process_interview_responses: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/complete_interview/{user_id}/{session_id}")
-async def complete_interview(user_id: str, session_id: str):
-    if user_id not in user_sessions or session_id not in user_sessions[user_id]:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    session = user_sessions[user_id][session_id]
-    
-    # Prepare the data for final evaluation
-    question_response_feedback = []
-    for i, question in enumerate(session["questions"]):
-        response = next(
-            (r for r in session["responses"] if r["question_id"] == question["id"]),
-            {"text": "No response recorded"}
-        )
-        feedback = next(
-            (f for f in session["feedback"] if f["question_id"] == question["id"]),
-            {"text": "No feedback available"}
-        )
-        
-        question_response_feedback.append({
-            "question": question["text"],
-            "response": response["text"],
-            "feedback": feedback["text"]
-        })
-    
-    # Get overall evaluation
-    overall_evaluation = score_crew.kickoff(inputs={"data": question_response_feedback})
-    score = overall_evaluation.get("score", 0)
-    
-    # Prepare data for saving
-    mock_interview = {
-        "user_id": user_id,
-        "session_id": session_id,
-        "questions": session["questions"],
-        "responses": session["responses"],
-        "feedback": session["feedback"],
-        "total_time": 0,
-        "score": score,
-        "evaluation": overall_evaluation,
-        "timestamp": datetime.datetime.now()
-    }
-    
-    # Save to MongoDB
-    result = collection.insert_one(mock_interview)
-    
-    return {
-        "message": "Interview completed and saved successfully",
-        "score": score,
-        "evaluation": overall_evaluation,
-        "interview_id": str(result.inserted_id)
-    }
 
+def clean_json_output(json_str: str) -> dict:
+    """Clean and parse JSON output from LLM."""
+    try:
+        # Remove markdown code fences if present
+        json_str = json_str.strip()
+        if json_str.startswith('```json'):
+            json_str = json_str[7:]
+        if json_str.endswith('```'):
+            json_str = json_str[:-3]
+        json_str = json_str.strip()
+        
+        # Parse the JSON
+        return json.loads(json_str)
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse JSON: {json_str}")
+        return {"error": f"Invalid JSON format: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Error cleaning JSON output: {str(e)}")
+        return {"error": f"Output processing failed: {str(e)}"}
+
+# @app.post("/complete_interview/{user_id}/{session_id}")
+# async def complete_interview(user_id: str, session_id: str):
+#     if user_id not in user_sessions or session_id not in user_sessions[user_id]:
+#         raise HTTPException(status_code=404, detail="Session not found")
+    
+#     session = user_sessions[user_id][session_id]
+    
+#     # Prepare the data for final evaluation
+#     question_response_feedback = []
+#     for i, question in enumerate(session["questions"]):
+#         response = next(
+#             (r for r in session["responses"] if r["question_id"] == question["id"]),
+#             {"text": "No response recorded"}
+#         )
+#         feedback = next(
+#             (f for f in session["feedback"] if f["question_id"] == question["id"]),
+#             {"text": "No feedback available"}
+#         )
+        
+#         question_response_feedback.append({
+#             "question": question["text"],
+#             "response": response["text"],
+#             "feedback": feedback["text"]
+#         })
+    
+#     # Get overall evaluation
+#     overall_evaluation = score_crew.kickoff(inputs={"data": question_response_feedback})
+#     score = overall_evaluation.get("score", 0)
+    
+#     # Prepare data for saving
+#     mock_interview = {
+#         "user_id": user_id,
+#         "session_id": session_id,
+#         "questions": session["questions"],
+#         "responses": session["responses"],
+#         "feedback": session["feedback"],
+#         "total_time": 0,
+#         "score": score,
+#         "evaluation": overall_evaluation,
+#         "timestamp": datetime.now()
+#     }
+    
+#     # Save to MongoDB
+#     result = collection.insert_one(mock_interview)
+    
+#     return {
+#         "message": "Interview completed and saved successfully",
+#         "score": score,
+#         "evaluation": overall_evaluation,
+#         "interview_id": str(result.inserted_id)
+#     }
+
+@app.get("/user_stats/{user_id}")
+async def get_user_stats(user_id: str):
+    """Get basic statistics: average score, total interview time, and number of interviews"""
+    try:
+        # Get all sessions for the user with relevant timestamps
+        sessions = list(collection.find({"user_id": user_id}, {
+            "_id": 0,
+            "evaluation.score": 1,
+            "timestamp": 1,
+            "last_updated": 1
+        }))
+        
+        if not sessions:
+            raise HTTPException(status_code=404, detail="No interview sessions found for this user.")
+        
+        total_sessions = len(sessions)
+        total_score = sum(float(session.get("evaluation", {}).get("score", 0)) for session in sessions)
+        avg_score = total_score / total_sessions if total_sessions > 0 else 0
+        
+        # Calculate total interview time in minutes
+        total_time_minutes = 0
+        
+        for session in sessions:
+            try:
+                # Debug: Print raw timestamp values
+                print(f"Raw timestamp: {session.get('timestamp')}")
+                print(f"Raw last_updated: {session.get('last_updated')}")
+                
+                # Parse timestamps
+                start_str = str(session.get("timestamp"))
+                end_str = str(session.get("last_updated"))
+                
+                # Remove trailing 'Z' if present and ensure proper ISO format
+                start_str = start_str.replace('Z', '+00:00')
+                end_str = end_str.replace('Z', '+00:00')
+                
+                start_time = datetime.fromisoformat(start_str)
+                end_time = datetime.fromisoformat(end_str)
+                
+                # Debug: Print parsed datetimes
+                print(f"Parsed start: {start_time}")
+                print(f"Parsed end: {end_time}")
+                
+                # Calculate duration in minutes
+                duration = (end_time - start_time).total_seconds() / 60
+                print(f"Calculated duration: {duration} minutes")
+                
+                if duration > 0:  # Only add positive durations
+                    total_time_minutes += duration
+            except (KeyError, ValueError, TypeError) as e:
+                # Skip if timestamps are missing, invalid, or wrong type
+                continue
+        
+        return {
+            "user_id": user_id,
+            "average_score": round(avg_score, 2),
+            "total_sessions": total_sessions,
+            "total_time_minutes": round(total_time_minutes, 2)
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving user stats: {str(e)}"
+        )
+    
+@app.get("/performance_evaluations/{user_id}")
+async def get_performance_evaluations(user_id: str):
+    """Get all performance evaluation breakdowns for a user"""
+    try:
+        sessions = list(collection.find(
+            {"user_id": user_id, "evaluation.breakdown": {"$exists": True}},
+            {
+                "_id": 0,
+                "session_id": 1,
+                "timestamp": 1,
+                "evaluation.breakdown": 1,
+                "evaluation.strengths": 1,
+                "evaluation.improvement_areas": 1
+            }
+        ).sort("timestamp", -1))
+        
+        if not sessions:
+            raise HTTPException(status_code=404, detail="No evaluation data found for this user.")
+        
+        # Process evaluation data
+        evaluations = []
+        for session in sessions:
+            eval_data = session.get("evaluation", {})
+            breakdown = eval_data.get("breakdown", {})
+            
+            evaluations.append({
+                "session_id": session["session_id"],
+                "date": session["timestamp"],
+                "score": eval_data.get("score", 0),
+                "breakdown": {
+                    "technical_skill": breakdown.get("technical skill", 0),
+                    "problem_solving": breakdown.get("problem solving", 0),
+                    "communication": breakdown.get("communication", 0),
+                    "knowledge": breakdown.get("knowledge", 0)
+                },
+                "strengths": eval_data.get("strengths", []),
+                "improvement_areas": eval_data.get("improvement_areas", [])
+            })
+        
+        return {
+            "user_id": user_id,
+            "evaluations": evaluations,
+            "total_evaluations": len(evaluations)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving evaluations: {str(e)}")
+
+# @app.get("/monthly_scores/{user_id}")
+# async def get_monthly_scores(user_id: str, months: int = 6):
+#     """Get monthly average scores for the last N months"""
+#     try:
+#         # Get current date in UTC
+#         current_date = datetime.utcnow()
+#         start_date = current_date - timedelta(days=30*months)
+        
+#         print(f"Searching for interviews between {start_date} and {current_date}")  # Debug
+        
+#         # First verify the user exists
+#         if collection.count_documents({"user_id": user_id}) == 0:
+#             raise HTTPException(status_code=404, detail="User not found")
+        
+#         # Check documents in date range without aggregation first
+#         test_docs = list(collection.find({
+#             "user_id": user_id,
+#             "last_updated": {
+#                 "$gte": start_date.isoformat(),
+#                 "$lte": current_date.isoformat()
+#             }
+#         }, {"last_updated": 1, "evaluation.score": 1}).limit(1))
+        
+#         print(f"Found {len(test_docs)} documents in date range")  # Debug
+        
+#         if not test_docs:
+#             return {
+#                 "user_id": user_id,
+#                 "time_period": f"Last {months} months",
+#                 "message": "No interviews found in this period",
+#                 "monthly_scores": []
+#             }
+        
+#         # Now run the aggregation
+#         pipeline = [
+#             {
+#                 "$match": {
+#                     "user_id": user_id,
+#                     "last_updated": {
+#                         "$gte": start_date.isoformat(),
+#                         "$lte": current_date.isoformat()
+#                     }
+#                 }
+#             },
+#             {
+#                 "$addFields": {
+#                     "date": {
+#                         "$dateFromString": {
+#                             "dateString": "$last_updated",
+#                             "format": "%Y-%m-%dT%H:%M:%S.%L%z"
+#                         }
+#                     },
+#                     "score": "$evaluation.score"
+#                 }
+#             },
+#             {
+#                 "$group": {
+#                     "_id": {
+#                         "year": {"$year": "$date"},
+#                         "month": {"$month": "$date"}
+#                     },
+#                     "average_score": {"$avg": "$score"},
+#                     "count": {"$sum": 1}
+#                 }
+#             },
+#             {
+#                 "$sort": {"_id.year": 1, "_id.month": 1}
+#             },
+#             {
+#                 "$project": {
+#                     "_id": 0,
+#                     "year": "$_id.year",
+#                     "month": "$_id.month",
+#                     "average_score": 1,
+#                     "session_count": "$count"
+#                 }
+#             }
+#         ]
+        
+#         monthly_data = list(collection.aggregate(pipeline))
+        
+#         return {
+#             "user_id": user_id,
+#             "time_period": f"Last {months} months",
+#             "monthly_scores": monthly_data if monthly_data else [],
+#             "debug_info": {
+#                 "date_range": {
+#                     "start": start_date.isoformat(),
+#                     "end": current_date.isoformat()
+#                 },
+#                 "documents_found": len(test_docs)
+#             }
+#         }
+        
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=500,
+#             detail=f"Error retrieving monthly scores: {str(e)}"
+#         )
+     
 @app.get("/get_mock_interview/{user_id}")
 async def get_mock_interview(user_id: str):
     try:
@@ -383,4 +666,4 @@ def root():
 # Run the application
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="10.1.172.43", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
