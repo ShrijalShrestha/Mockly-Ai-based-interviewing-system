@@ -15,8 +15,8 @@ llm = ChatGoogleGenerativeAI(
 # Agent for generating structured interview questions
 question_generator = Agent(
     role="Senior Technical Recruiter",
-    goal="Craft well-structured, relevant interview questions tailored to the candidate's background and expertise.",
-    backstory="With years of experience in technical hiring, you have a deep understanding of industry trends and the skills required for success. You create engaging and insightful questions that help assess a candidate's problem-solving ability, technical depth, and communication skills.",
+    goal="Generate concise, relevant technical interview questions based on the candidate's background",
+    backstory="An experienced recruiter who knows how to ask precise questions that effectively evaluate technical skills without being verbose.",
     llm=llm
 )
 
@@ -31,9 +31,10 @@ response_analyzer = Agent(
 # Agent for computing the final score based on all feedback
 score_evaluator = Agent(
     role="Panel Lead Interviewer",
-    goal="Assess the overall interview performance, considering technical knowledge, problem-solving, and communication skills to determine a fair and justified final score.",
-    backstory="As a lead interviewer in a panel setting, you have extensive experience evaluating candidates holistically. You ensure unbiased scoring based on structured feedback and industry standards, providing a transparent evaluation.",
-    llm=llm
+    goal="Calculate final interview scores and provide comprehensive evaluation with improvement areas.",
+    backstory="As a lead interviewer in a panel setting, you have extensive experience evaluating candidates holistically.",
+    llm=llm,
+    # format="json"
 )
 
 # Task to generate structured interview questions
@@ -67,24 +68,35 @@ analyze_response = Task(
 
 # Task to evaluate the final score based on all responses and feedback
 evaluate_interview = Task(
-    description="""Assess the overall interview performance based on all question-response-feedback mappings.
-    Data: {data}
+    description="""Calculate final interview scores based on interview responses.
     
-    Consider:
-    1. Consistency of performance across questions
-    2. Depth of technical knowledge
-    3. Problem-solving skills
-    4. Communication effectiveness
+    You will receive interview data in JSON format containing question-response pairs.
+    Analyze each response and provide a comprehensive evaluation.
     
-    Provide a comprehensive evaluation with a justified score.""",
-    expected_output="""A final evaluation containing:
-    - overall_score: Numerical score (0-10)
-    - technical_evaluation: Summary of technical performance
-    - problem_solving_evaluation: Summary of problem-solving skills
-    - communication_evaluation: Summary of communication skills
-    - strengths: Key strengths demonstrated
-    - improvement_areas: Key areas for improvement""",
-    agent=score_evaluator,
+    The input data will be in this format:
+    {interview_data}
+    
+    Return ONLY a JSON object with these exact fields:
+    - overall_score (float between 0-10)
+    - score_breakdown (object with these exact keys: 
+        "technical skill", "problem solving", "communication", "knowledge")
+    - strengths (array of strings)
+    - improvement_areas (array of strings)
+    
+    Example output:
+    {{
+        "overall_score": 7.5,
+        "score_breakdown": {{
+            "technical skill": 8.0,
+            "problem solving": 7.0,
+            "communication": 7.5,
+            "knowledge": 8.5
+        }},
+        "strengths": ["Good technical knowledge", "Clear communication"],
+        "improvement_areas": ["Problem-solving structure", "Depth of examples"]
+    }}""",
+    expected_output="A JSON object with overall_score, score_breakdown, strengths, and improvement_areas",
+    agent=score_evaluator
 )
 
 # Crews to handle question generation, response analysis, and final evaluation

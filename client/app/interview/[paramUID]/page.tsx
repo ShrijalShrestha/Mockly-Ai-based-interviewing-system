@@ -32,7 +32,7 @@ interface Question {
 interface Answer {
   questionId: string
   text: string
-  timestamp: Date
+  // timestamp: Date
 }
 
 // Declare SpeechRecognition interface
@@ -77,9 +77,9 @@ export default function InterviewPage({ params }: { params: Promise<{ paramUID: 
     sessionId: string
     responses: {
       questionId: string
-      questionText: string
+      // questionText: string
       answer: string
-      timestamp: Date
+      // timestamp: Date
     }[]
   }>({
     userId: null,
@@ -426,7 +426,7 @@ export default function InterviewPage({ params }: { params: Promise<{ paramUID: 
       const newAnswer: Answer = {
         questionId: currentQuestion.id,
         text: answer,
-        timestamp: new Date(),
+        // timestamp: new Date(),
       }
 
       setAnswers((prev) => [...prev, newAnswer])
@@ -443,17 +443,17 @@ export default function InterviewPage({ params }: { params: Promise<{ paramUID: 
         if (existingResponseIndex >= 0) {
           newResponses[existingResponseIndex] = {
             questionId: currentQuestion.id,
-            questionText: question,
+            // questionText: question,
             answer: answer,
-            timestamp: new Date(),
+            // timestamp: new Date(),
           }
         } else {
           // Otherwise add a new response
           newResponses.push({
             questionId: currentQuestion.id,
-            questionText: question,
+            // questionText: question,
             answer: answer,
-            timestamp: new Date(),
+            // timestamp: new Date(),
           })
         }
 
@@ -469,7 +469,7 @@ export default function InterviewPage({ params }: { params: Promise<{ paramUID: 
         questionId: currentQuestion.id,
         question,
         answer,
-        timestamp: new Date(),
+        // timestamp: new Date(),
       })
 
       console.log("Response stored successfully")
@@ -636,17 +636,15 @@ export default function InterviewPage({ params }: { params: Promise<{ paramUID: 
 
       // Log the complete interview data
       console.log("Complete interview data:", {
+        responses: interviewData.responses,
         userId: user.uid,
         sessionId: paramUID,
-        responses: interviewData.responses,
-        totalQuestions: questions.length,
-        answeredQuestions: interviewData.responses.length,
       })
 
       // Send the interview data to the FastAPI endpoint--------------------------------------------
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_FASTAPI_URL || "http://127.0.0.1:8000"}/complete_interview/${user.uid}/${paramUID}`,
+        `${process.env.NEXT_PUBLIC_FASTAPI_URL || "http://127.0.0.1:8000"}/process_interview_responses/${user.uid}/${paramUID}`,
         {
           method: "POST",
           headers: {
