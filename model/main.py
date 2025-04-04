@@ -450,7 +450,11 @@ async def get_user_stats(user_id: str):
         }))
         
         if not sessions:
-            raise HTTPException(status_code=404, detail="No interview sessions found for this user.")
+            return {
+                "average_score": 0,
+                "total_time_minutes": 0,
+                "total_interviews": 0
+            }
         
         total_sessions = len(sessions)
         total_score = sum(float(session.get("evaluation", {}).get("score", 0)) for session in sessions)
@@ -491,45 +495,58 @@ async def get_user_stats(user_id: str):
                 continue
         
         return {
-            "user_id": user_id,
             "average_score": round(avg_score, 2),
-            "total_sessions": total_sessions,
-            "total_time_minutes": round(total_time_minutes, 2)
+            "total_time_minutes": round(total_time_minutes, 2),
+            "total_interviews": total_sessions
         }
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error retrieving user stats: {str(e)}"
-        )
+        print(f"Error retrieving user stats: {str(e)}")  # Debug
+        return {
+            "average_score": 0,
+            "total_time_minutes": 0,
+            "total_interviews": 0
+        }
     
 @app.get("/performance_evaluations/{user_id}")
 async def get_performance_evaluations(user_id: str):
     """Get all performance evaluation breakdowns for a user"""
     try:
         sessions = list(collection.find(
-            {"user_id": user_id, "evaluation.breakdown": {"$exists": True}},
+            {"user_id": user_id, "evaluation": {"$exists": True}},
             {
                 "_id": 0,
                 "session_id": 1,
                 "timestamp": 1,
+                "evaluation.score": 1,
                 "evaluation.breakdown": 1,
                 "evaluation.strengths": 1,
                 "evaluation.improvement_areas": 1
             }
         ).sort("timestamp", -1))
         
+        # Default evaluation data when no sessions exist
         if not sessions:
-            raise HTTPException(status_code=404, detail="No evaluation data found for this user.")
+            return {
+                "evaluation_scores": [
+                    {"category": "Technical Skill", "score": 0},
+                    {"category": "Problem Solving", "score": 0},
+                    {"category": "Communication", "score": 0},
+                    {"category": "Knowledge", "score": 0}
+                ],
+                "evaluations": [],
+                "total_evaluations": 0
+            }
         
         # Process evaluation data
         evaluations = []
+        evaluation_scores = []
+        
         for session in sessions:
             eval_data = session.get("evaluation", {})
             breakdown = eval_data.get("breakdown", {})
             
+            # Add to detailed evaluations
             evaluations.append({
-                "session_id": session["session_id"],
-                "date": session["timestamp"],
                 "score": eval_data.get("score", 0),
                 "breakdown": {
                     "technical_skill": breakdown.get("technical skill", 0),
@@ -541,13 +558,32 @@ async def get_performance_evaluations(user_id: str):
                 "improvement_areas": eval_data.get("improvement_areas", [])
             })
         
+        # Create radar chart compatible scores
+        if evaluations:
+            evaluation_scores = [
+                {"category": "Technical Skill", "score": evaluations[0]["breakdown"]["technical_skill"]},
+                {"category": "Problem Solving", "score": evaluations[0]["breakdown"]["problem_solving"]},
+                {"category": "Communication", "score": evaluations[0]["breakdown"]["communication"]},
+                {"category": "Knowledge", "score": evaluations[0]["breakdown"]["knowledge"]}
+            ]
+        
         return {
-            "user_id": user_id,
+            "evaluation_scores": evaluation_scores,
             "evaluations": evaluations,
             "total_evaluations": len(evaluations)
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving evaluations: {str(e)}")
+        # Return default data on error too
+        return {
+            "evaluation_scores": [
+                {"category": "Technical Skill", "score": 0},
+                {"category": "Problem Solving", "score": 0},
+                {"category": "Communication", "score": 0},
+                {"category": "Knowledge", "score": 0}
+            ],
+            "evaluations": [],
+            "total_evaluations": 0
+        }
 
 # @app.get("/monthly_scores/{user_id}")
 # async def get_monthly_scores(user_id: str, months: int = 6):

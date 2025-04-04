@@ -24,7 +24,6 @@ const chartData = [
   { category: "Knowledge", desktop: 88, mobile: 78 },
   { category: "Communication", desktop: 80, mobile: 72 },
   { category: "Problem-Solving", desktop: 92, mobile: 76 },
-  { category: "Speed", desktop: 87, mobile: 74 },
 ]
 
 const chartConfig = {

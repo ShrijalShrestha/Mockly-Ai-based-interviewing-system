@@ -1,18 +1,29 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { motion } from "framer-motion"
-import { auth } from "@/lib/firebase"
-import { onAuthStateChanged } from "firebase/auth"
-import { Calendar, Clock, FileText, Plus, BarChart3 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Navbar } from "@/components/navbar"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Component } from "../../components/Radar_Chart"
-import { Doted_Graph } from "@/components/Doted-Graph"
-import { Count_tests } from "@/components/Count-tests"
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { auth } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { Calendar, Clock, FileText, Plus, BarChart3 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Navbar } from "@/components/navbar";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Component } from "../../components/Radar_Chart";
+import { Doted_Graph } from "@/components/Doted-Graph";
+import { Count_tests } from "@/components/Count-tests";
+
+interface UserStats {
+  average_score: number;
+  total_time_minutes: number;
+  total_interviews: number;
+}
+
+interface EvaluationScore {
+  category: string;
+  score: number;
+}
 
 // Mock interview data
 const mockInterviews = [
@@ -40,29 +51,88 @@ const mockInterviews = [
     duration: "60 minutes",
     score: 92,
   },
-]
+];
 
 export default function DashboardPage() {
-  const [user, setUser] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const router = useRouter()
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const [stats, setStats] = useState<UserStats>({
+    average_score: 0,
+    total_time_minutes: 0,
+    total_interviews: 0,
+  });
+  const [evaluations, setEvaluations] = useState<EvaluationScore[]>([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        if (!user?.uid) return;
+
+        setLoading(true);
+
+        const [statsRes, evaluationsRes] = await Promise.all([
+          fetch(
+            `${process.env.NEXT_PUBLIC_FASTAPI_URL}/user_stats/${user.uid}`
+          ),
+          fetch(
+            `${process.env.NEXT_PUBLIC_FASTAPI_URL}/performance_evaluations/${user.uid}`
+          ),
+        ]);
+
+        // Default values
+        let statsData = {
+          average_score: 0,
+          total_time_minutes: 0,
+          total_interviews: 0,
+        };
+
+        let evaluationsData = { evaluation_scores: [] };
+
+        // Only parse if response is ok
+        if (statsRes.ok) {
+          statsData = await statsRes.json();
+        }
+
+        if (evaluationsRes.ok) {
+          evaluationsData = await evaluationsRes.json();
+        }
+
+        setStats({
+          average_score: statsData.average_score || 0,
+          total_time_minutes: statsData.total_time_minutes || 0,
+          total_interviews: statsData.total_interviews || 0,
+        });
+
+        setEvaluations(evaluationsData.evaluation_scores || []);
+        console.log(stats);
+        console.log(evaluations);
+      } catch (err) {
+        console.error("Error fetching data:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [user?.uid]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
-        setUser(currentUser)
+        setUser(currentUser);
       } else {
-        router.push("/login")
+        router.push("/login");
       }
-      setLoading(false)
-    })
+      setLoading(false);
+    });
 
-    return () => unsubscribe()
-  }, [router])
+    return () => unsubscribe();
+  }, [router]);
 
   const startNewInterview = () => {
-    router.push("/upload")
-  }
+    router.push("/upload");
+  };
 
   if (loading) {
     return (
@@ -94,7 +164,7 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -114,8 +184,12 @@ export default function DashboardPage() {
                 {user?.displayName?.charAt(0) || user?.email?.charAt(0) || "U"}
               </div>
               <div>
-                <h1 className="text-2xl font-bold">Welcome, {user?.displayName || "User"}</h1>
-                <p className="text-gray-400">Let's prepare for your next interview</p>
+                <h1 className="text-2xl font-bold">
+                  Welcome, {user?.displayName || "User"}
+                </h1>
+                <p className="text-gray-400">
+                  Let's prepare for your next interview
+                </p>
               </div>
             </div>
             <Button
@@ -126,29 +200,19 @@ export default function DashboardPage() {
               Start New Interview
             </Button>
           </div>
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card className="bg-gray-900 border-gray-800">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-400">Total Interviews</CardTitle>
+                <CardTitle className="text-sm font-medium text-gray-400">
+                  Total Interviews
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center">
                   <Calendar className="h-5 w-5 text-blue-500 mr-2" />
-                  <span className="text-2xl font-bold">{mockInterviews.length}</span>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-gray-900 border-gray-800">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-400">Average Score</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center">
-                  <BarChart3 className="h-5 w-5 text-green-500 mr-2" />
                   <span className="text-2xl font-bold">
-                    {Math.round(mockInterviews.reduce((acc, int) => acc + int.score, 0) / mockInterviews.length)}%
+                    {stats?.total_interviews}
                   </span>
                 </div>
               </CardContent>
@@ -156,35 +220,57 @@ export default function DashboardPage() {
 
             <Card className="bg-gray-900 border-gray-800">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-400">Total Practice Time</CardTitle>
+                <CardTitle className="text-sm font-medium text-gray-400">
+                  Average Score
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center">
+                  <BarChart3 className="h-5 w-5 text-green-500 mr-2" />
+                  <span className="text-2xl font-bold">
+                    {stats?.average_score}%
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gray-900 border-gray-800">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-gray-400">
+                  Total Practice Time
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center">
                   <Clock className="h-5 w-5 text-purple-500 mr-2" />
-                  <span className="text-2xl font-bold">135 min</span>
+                  <span className="text-2xl font-bold">
+                    {stats?.total_time_minutes} min
+                  </span>
                 </div>
               </CardContent>
             </Card>
           </div>
-         
 
 
-{/* Graphs */}
-         <div className="flex w-full gap-4 items-stretch">
-  {/* Left Section: Graph (70%) */}
-  <div className="flex-[0.7]">
-    <Doted_Graph />
-  </div>
 
-  {/* Right Section: Radar & Count Tests (30%) */}
-  <div className="flex-[0.3] flex flex-col gap-4 justify-between">
-    <Component />
-    <Count_tests />
-  </div>
-</div>
+          {/* Graphs */}
+          <div className="flex w-full gap-4 items-stretch">
+            {/* Left Section: Graph (70%) */}
+            <div className="flex-[0.7]">
+              <Doted_Graph />
+            </div>
 
 
-        
+
+            {/* Right Section: Radar & Count Tests (30%) */}
+            <div className="flex-[0.3] flex flex-col gap-4 justify-between">
+              <Component />
+              <Count_tests />
+            </div>
+          </div>
+
+
+
 
           {/* Recent Interviews */}
           <div>
@@ -205,7 +291,9 @@ export default function DashboardPage() {
                       </div>
                       <div>
                         <h3 className="font-semibold">{interview.position}</h3>
-                        <p className="text-sm text-gray-400">{interview.company}</p>
+                        <p className="text-sm text-gray-400">
+                          {interview.company}
+                        </p>
                         <div className="flex items-center gap-4 mt-2">
                           <span className="text-xs text-gray-500 flex items-center">
                             <Calendar className="h-3 w-3 mr-1" />
@@ -226,16 +314,20 @@ export default function DashboardPage() {
                             interview.score >= 90
                               ? "text-green-500"
                               : interview.score >= 80
-                                ? "text-blue-500"
-                                : interview.score >= 70
-                                  ? "text-yellow-500"
-                                  : "text-red-500"
+                              ? "text-blue-500"
+                              : interview.score >= 70
+                              ? "text-yellow-500"
+                              : "text-red-500"
                           }`}
                         >
                           {interview.score}%
                         </div>
                       </div>
-                      <Button variant="outline" size="sm" className="border-gray-700">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-gray-700"
+                      >
                         View Details
                       </Button>
                     </div>
@@ -247,6 +339,5 @@ export default function DashboardPage() {
         </motion.div>
       </div>
     </div>
-  )
+  );
 }
-
