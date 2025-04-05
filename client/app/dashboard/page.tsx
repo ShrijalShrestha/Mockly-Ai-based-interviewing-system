@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Navbar } from "@/components/navbar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Component } from "../../components/Radar_Chart";
+import { RadarGraph } from "../../components/Radar_Chart";
 import { Doted_Graph } from "@/components/Doted-Graph";
 import { Count_tests } from "@/components/Count-tests";
 
@@ -63,52 +63,66 @@ export default function DashboardPage() {
     total_interviews: 0,
   });
   const [evaluations, setEvaluations] = useState<EvaluationScore[]>([]);
+  let evaluationScores: EvaluationScore[] = [];
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+      } else {
+        router.push("/login");
+      }
+    });
+    return () => unsubscribe();
+  }, [router]);
 
   useEffect(() => {
     const fetchData = async () => {
+      if (!user?.uid) return;
+      
       try {
-        if (!user?.uid) return;
-
         setLoading(true);
-
+        
         const [statsRes, evaluationsRes] = await Promise.all([
-          fetch(
-            `${process.env.NEXT_PUBLIC_FASTAPI_URL}/user_stats/${user.uid}`
-          ),
-          fetch(
-            `${process.env.NEXT_PUBLIC_FASTAPI_URL}/performance_evaluations/${user.uid}`
-          ),
+          fetch(`${process.env.NEXT_PUBLIC_FASTAPI_URL}/user_stats/${user.uid}`),
+          fetch(`${process.env.NEXT_PUBLIC_FASTAPI_URL}/performance_evaluations/${user.uid}`)
         ]);
 
-        // Default values
+        // Handle stats response
         let statsData = {
           average_score: 0,
           total_time_minutes: 0,
-          total_interviews: 0,
+          total_interviews: 0
         };
-
-        let evaluationsData = { evaluation_scores: [] };
-
-        // Only parse if response is ok
+        
         if (statsRes.ok) {
-          statsData = await statsRes.json();
+          const data = await statsRes.json();
+          statsData = {
+            average_score: data.average_score ?? 0,
+            total_time_minutes: data.total_time_minutes ?? 0,
+            total_interviews: data.total_interviews ?? 0
+          };
         }
 
+        // Handle evaluations response
+        
         if (evaluationsRes.ok) {
-          evaluationsData = await evaluationsRes.json();
+          const data = await evaluationsRes.json();
+          evaluationScores = data.evaluation_scores ?? [];
         }
 
-        setStats({
-          average_score: statsData.average_score || 0,
-          total_time_minutes: statsData.total_time_minutes || 0,
-          total_interviews: statsData.total_interviews || 0,
-        });
-
-        setEvaluations(evaluationsData.evaluation_scores || []);
-        console.log(stats);
-        console.log(evaluations);
+        setStats(statsData);
+        setEvaluations(evaluationScores);
+        console.log("Stasts:", statsData);
+        console.log("Evaluations:", evaluationScores);
       } catch (err) {
         console.error("Error fetching data:", err);
+        // Reset to defaults on error
+        setStats({
+          average_score: 0,
+          total_time_minutes: 0,
+          total_interviews: 0
+        });
+        setEvaluations([]);
       } finally {
         setLoading(false);
       }
@@ -261,14 +275,12 @@ export default function DashboardPage() {
             </div>
 
 
-
             {/* Right Section: Radar & Count Tests (30%) */}
             <div className="flex-[0.3] flex flex-col gap-4 justify-between">
-              <Component />
+              <RadarGraph evaluations={evaluations}/>
               <Count_tests />
             </div>
           </div>
-
 
 
 

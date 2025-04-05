@@ -18,26 +18,24 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart"
 
-const chartData = [
-  { category: "Accuracy", desktop: 90, mobile: 75 },
-  { category: "Skills", desktop: 85, mobile: 70 },
-  { category: "Knowledge", desktop: 88, mobile: 78 },
-  { category: "Communication", desktop: 80, mobile: 72 },
-  { category: "Problem-Solving", desktop: 92, mobile: 76 },
-]
+interface Evaluation {
+  category: string,
+  score: number,
+}
+
+interface RadarGraphProps {
+  evaluations: Evaluation[]
+}
+
 
 const chartConfig = {
-  desktop: {
-    label: "Desktop",
+  score: {
+    label: "Score",
     color: "hsl(var(--chart-1))",
-  },
-  mobile: {
-    label: "Mobile",
-    color: "hsl(var(--chart-2))",
   },
 } satisfies ChartConfig
 
-export function Component() {
+export function RadarGraph({ evaluations }: RadarGraphProps) {
   return (
     <Card>
       <CardHeader className="items-center pb-4">
@@ -51,7 +49,7 @@ export function Component() {
           config={chartConfig}
           className="mx-auto aspect-square max-h-[300px]"
         >
-          <RadarChart data={chartData}>
+          <RadarChart data={evaluations}>
             <ChartTooltip
               cursor={false}
               content={<ChartTooltipContent indicator="line" />}
@@ -59,15 +57,9 @@ export function Component() {
             <PolarAngleAxis dataKey="category" />
             <PolarGrid stroke="hsl(210, 80%, 50%)" /> {/* Bluish net/grid */}
             <Radar
-              dataKey="desktop"
+              dataKey="score"
               stroke="hsl(140, 80%, 40%)" /* Green stroke */
               fill="hsl(140, 80%, 60%)" /* Green fill */
-              fillOpacity={0.5}
-            />
-            <Radar
-              dataKey="mobile"
-              stroke="hsl(40, 80%, 40%)" /* Yellowish stroke */
-              fill="hsl(40, 80%, 60%)" /* Yellowish fill */
               fillOpacity={0.5}
             />
           </RadarChart>
