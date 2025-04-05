@@ -278,7 +278,7 @@ export default function DashboardPage() {
             {/* Right Section: Radar & Count Tests (30%) */}
             <div className="flex-[0.3] flex flex-col gap-4 justify-between">
               <RadarGraph evaluations={evaluations}/>
-              <Count_tests />
+              <Count_tests count={stats.total_interviews}/>
             </div>
           </div>
 
