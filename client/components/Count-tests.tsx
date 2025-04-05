@@ -20,28 +20,17 @@ import {
 } from "@/components/ui/card";
 import { ChartConfig, ChartContainer } from "@/components/ui/chart";
 
-export function Count_tests() {
+export function Count_tests({count}: { count: number }) {
   const [testCount, setTestCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // Fetch test count from API
+  // Move state updates to useEffect
   useEffect(() => {
-    async function fetchTestCount() {
-      try {
-        const response = await fetch("/api/getTestCount");
-        const data = await response.json();
-        setTestCount(data.count);
-      } catch (error) {
-        console.error("Error fetching test count:", error);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchTestCount();
-  }, []);
-
-  const chartData = [{ browser: "safari", visitors: testCount, fill: "red" }];
+    setTestCount(count);
+    setLoading(false);
+  }, [count]); // Only run when count prop changes
+  
+  const chartData = [{ browser: "chrome", visitors: testCount, fill: "red" }];
 
   const chartConfig = {
     visitors: { label: "Visitors" },

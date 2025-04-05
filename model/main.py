@@ -88,16 +88,6 @@ def extract_resume_text(pdf_file: UploadFile) -> str:
     except Exception as e:
         logger.error(f"Error extracting resume text: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid PDF file")
-
-# def clean_json_output(json_str: str) -> dict:
-#     """Clean JSON string by removing markdown code fences and parsing."""
-#     try:
-#         # Remove markdown code fences if present
-#         json_str = json_str.replace('```json', '').replace('```', '').strip()
-#         return json.loads(json_str)
-#     except json.JSONDecodeError:
-#         logger.error(f"Failed to parse JSON: {json_str}")
-#         return {"error": "Invalid evaluation format"}
     
 async def generate_questions(resume: str) -> List[dict]:
     """Generate interview questions from resume text."""
@@ -385,58 +375,6 @@ def clean_json_output(json_str: str) -> dict:
         logger.error(f"Error cleaning JSON output: {str(e)}")
         return {"error": f"Output processing failed: {str(e)}"}
 
-# @app.post("/complete_interview/{user_id}/{session_id}")
-# async def complete_interview(user_id: str, session_id: str):
-#     if user_id not in user_sessions or session_id not in user_sessions[user_id]:
-#         raise HTTPException(status_code=404, detail="Session not found")
-    
-#     session = user_sessions[user_id][session_id]
-    
-#     # Prepare the data for final evaluation
-#     question_response_feedback = []
-#     for i, question in enumerate(session["questions"]):
-#         response = next(
-#             (r for r in session["responses"] if r["question_id"] == question["id"]),
-#             {"text": "No response recorded"}
-#         )
-#         feedback = next(
-#             (f for f in session["feedback"] if f["question_id"] == question["id"]),
-#             {"text": "No feedback available"}
-#         )
-        
-#         question_response_feedback.append({
-#             "question": question["text"],
-#             "response": response["text"],
-#             "feedback": feedback["text"]
-#         })
-    
-#     # Get overall evaluation
-#     overall_evaluation = score_crew.kickoff(inputs={"data": question_response_feedback})
-#     score = overall_evaluation.get("score", 0)
-    
-#     # Prepare data for saving
-#     mock_interview = {
-#         "user_id": user_id,
-#         "session_id": session_id,
-#         "questions": session["questions"],
-#         "responses": session["responses"],
-#         "feedback": session["feedback"],
-#         "total_time": 0,
-#         "score": score,
-#         "evaluation": overall_evaluation,
-#         "timestamp": datetime.now()
-#     }
-    
-#     # Save to MongoDB
-#     result = collection.insert_one(mock_interview)
-    
-#     return {
-#         "message": "Interview completed and saved successfully",
-#         "score": score,
-#         "evaluation": overall_evaluation,
-#         "interview_id": str(result.inserted_id)
-#     }
-
 @app.get("/user_stats/{user_id}")
 async def get_user_stats(user_id: str):
     """Get basic statistics: average score, total interview time, and number of interviews"""
@@ -509,7 +447,7 @@ async def get_user_stats(user_id: str):
     
 @app.get("/performance_evaluations/{user_id}")
 async def get_performance_evaluations(user_id: str):
-    """Get all performance evaluation breakdowns for a user"""
+    """Get all performance evaluation breakdowns for a user with average scores"""
     try:
         sessions = list(collection.find(
             {"user_id": user_id, "evaluation": {"$exists": True}},
@@ -524,7 +462,7 @@ async def get_performance_evaluations(user_id: str):
             }
         ).sort("timestamp", -1))
         
-        # Default evaluation data when no sessions exist
+        # Default response when no sessions exist
         if not sessions:
             return {
                 "evaluation_scores": [
@@ -534,46 +472,62 @@ async def get_performance_evaluations(user_id: str):
                     {"category": "Knowledge", "score": 0}
                 ],
                 "evaluations": [],
-                "total_evaluations": 0
+                "total_sessions": 0,
+                "average_score": 0
             }
         
-        # Process evaluation data
-        evaluations = []
-        evaluation_scores = []
+        # Initialize accumulators
+        total_score = 0
+        category_totals = {
+            "technical_skill": 0,
+            "problem_solving": 0,
+            "communication": 0,
+            "knowledge": 0
+        }
         
+        # Process all sessions
         for session in sessions:
             eval_data = session.get("evaluation", {})
             breakdown = eval_data.get("breakdown", {})
             
-            # Add to detailed evaluations
-            evaluations.append({
-                "score": eval_data.get("score", 0),
-                "breakdown": {
-                    "technical_skill": breakdown.get("technical skill", 0),
-                    "problem_solving": breakdown.get("problem solving", 0),
-                    "communication": breakdown.get("communication", 0),
-                    "knowledge": breakdown.get("knowledge", 0)
-                },
-                "strengths": eval_data.get("strengths", []),
-                "improvement_areas": eval_data.get("improvement_areas", [])
-            })
+            # Accumulate totals for averages
+            total_score += eval_data.get("score", 0)
+            category_totals["technical_skill"] += breakdown.get("technical skill", 0)
+            category_totals["problem_solving"] += breakdown.get("problem solving", 0)
+            category_totals["communication"] += breakdown.get("communication", 0)
+            category_totals["knowledge"] += breakdown.get("knowledge", 0)
         
-        # Create radar chart compatible scores
-        if evaluations:
-            evaluation_scores = [
-                {"category": "Technical Skill", "score": evaluations[0]["breakdown"]["technical_skill"]},
-                {"category": "Problem Solving", "score": evaluations[0]["breakdown"]["problem_solving"]},
-                {"category": "Communication", "score": evaluations[0]["breakdown"]["communication"]},
-                {"category": "Knowledge", "score": evaluations[0]["breakdown"]["knowledge"]}
-            ]
+        # Calculate averages
+        total_sessions = len(sessions)
+        average_score = round(total_score / total_sessions, 2) if total_sessions > 0 else 0
+        
+        evaluation_scores = [
+            {
+                "category": "Technical Skill",
+                "score": round(category_totals["technical_skill"] / total_sessions, 2)
+            },
+            {
+                "category": "Problem Solving",
+                "score": round(category_totals["problem_solving"] / total_sessions, 2)
+            },
+            {
+                "category": "Communication",
+                "score": round(category_totals["communication"] / total_sessions, 2)
+            },
+            {
+                "category": "Knowledge",
+                "score": round(category_totals["knowledge"] / total_sessions, 2)
+            }
+        ]
         
         return {
             "evaluation_scores": evaluation_scores,
-            "evaluations": evaluations,
-            "total_evaluations": len(evaluations)
+            "total_sessions": total_sessions,
+            "average_score": average_score
         }
+        
     except Exception as e:
-        # Return default data on error too
+        # Return default data on error
         return {
             "evaluation_scores": [
                 {"category": "Technical Skill", "score": 0},
@@ -582,7 +536,8 @@ async def get_performance_evaluations(user_id: str):
                 {"category": "Knowledge", "score": 0}
             ],
             "evaluations": [],
-            "total_evaluations": 0
+            "total_sessions": 0,
+            "average_score": 0
         }
 
 # @app.get("/monthly_scores/{user_id}")
