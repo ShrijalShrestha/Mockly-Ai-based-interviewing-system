@@ -271,7 +271,7 @@ export default function DashboardPage() {
           <div className="flex w-full gap-4 items-stretch">
             {/* Left Section: Graph (70%) */}
             <div className="flex-[0.7]">
-              <Doted_Graph />
+              <Doted_Graph userId={user?.uid} />
             </div>
 
 

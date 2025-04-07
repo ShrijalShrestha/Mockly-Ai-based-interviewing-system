@@ -587,105 +587,126 @@ async def get_performance_evaluations(user_id: str):
             "average_score": 0
         }
 
-# @app.get("/monthly_scores/{user_id}")
-# async def get_monthly_scores(user_id: str, months: int = 6):
-#     """Get monthly average scores for the last N months"""
-#     try:
-#         # Get current date in UTC
-#         current_date = datetime.utcnow()
-#         start_date = current_date - timedelta(days=30*months)
+@app.get("/monthly_scores/{user_id}")
+async def get_monthly_scores(user_id: str, months: int = 6):
+    """Get monthly average scores for the last N months"""
+    try:
+        # Get current date in UTC
+        current_date = datetime.utcnow()
+        start_date = current_date - timedelta(days=30*months)
         
-#         print(f"Searching for interviews between {start_date} and {current_date}")  # Debug
+        logger.info(f"Retrieving monthly scores for user {user_id} from {start_date} to {current_date}")
         
-#         # First verify the user exists
-#         if collection.count_documents({"user_id": user_id}) == 0:
-#             raise HTTPException(status_code=404, detail="User not found")
+        # First verify the user exists
+        if collection.count_documents({"user_id": user_id}) == 0:
+            logger.warning(f"User {user_id} not found in the database")
+            raise HTTPException(status_code=404, detail="User not found")
         
-#         # Check documents in date range without aggregation first
-#         test_docs = list(collection.find({
-#             "user_id": user_id,
-#             "last_updated": {
-#                 "$gte": start_date.isoformat(),
-#                 "$lte": current_date.isoformat()
-#             }
-#         }, {"last_updated": 1, "evaluation.score": 1}).limit(1))
+        # Get all completed interviews within date range
+        interviews = list(collection.find({
+            "user_id": user_id,
+            "completed": True,
+            "timestamp": {
+                "$gte": start_date,
+                "$lte": current_date
+            }
+        }, {
+            "timestamp": 1,
+            "score": 1,
+            "evaluation.score": 1
+        }))
         
-#         print(f"Found {len(test_docs)} documents in date range")  # Debug
+        logger.info(f"Found {len(interviews)} interviews for user {user_id}")
         
-#         if not test_docs:
-#             return {
-#                 "user_id": user_id,
-#                 "time_period": f"Last {months} months",
-#                 "message": "No interviews found in this period",
-#                 "monthly_scores": []
-#             }
+        if not interviews:
+            return {
+                "user_id": user_id,
+                "time_period": f"Last {months} months",
+                "message": "No interviews found in this period",
+                "monthly_scores": []
+            }
         
-#         # Now run the aggregation
-#         pipeline = [
-#             {
-#                 "$match": {
-#                     "user_id": user_id,
-#                     "last_updated": {
-#                         "$gte": start_date.isoformat(),
-#                         "$lte": current_date.isoformat()
-#                     }
-#                 }
-#             },
-#             {
-#                 "$addFields": {
-#                     "date": {
-#                         "$dateFromString": {
-#                             "dateString": "$last_updated",
-#                             "format": "%Y-%m-%dT%H:%M:%S.%L%z"
-#                         }
-#                     },
-#                     "score": "$evaluation.score"
-#                 }
-#             },
-#             {
-#                 "$group": {
-#                     "_id": {
-#                         "year": {"$year": "$date"},
-#                         "month": {"$month": "$date"}
-#                     },
-#                     "average_score": {"$avg": "$score"},
-#                     "count": {"$sum": 1}
-#                 }
-#             },
-#             {
-#                 "$sort": {"_id.year": 1, "_id.month": 1}
-#             },
-#             {
-#                 "$project": {
-#                     "_id": 0,
-#                     "year": "$_id.year",
-#                     "month": "$_id.month",
-#                     "average_score": 1,
-#                     "session_count": "$count"
-#                 }
-#             }
-#         ]
+        # Group by month and calculate average scores
+        months_data = {}
         
-#         monthly_data = list(collection.aggregate(pipeline))
+        for interview in interviews:
+            timestamp = interview.get("timestamp")
+            if not timestamp:
+                continue
+                
+            # Extract year and month
+            year_month = timestamp.strftime("%Y-%m")
+            
+            # Get score (either from root or evaluation object)
+            score = interview.get("score", 0)
+            if score == 0:
+                score = interview.get("evaluation", {}).get("score", 0)
+            
+            # Add to appropriate month bucket
+            if year_month not in months_data:
+                months_data[year_month] = {
+                    "total": score,
+                    "count": 1
+                }
+            else:
+                months_data[year_month]["total"] += score
+                months_data[year_month]["count"] += 1
         
-#         return {
-#             "user_id": user_id,
-#             "time_period": f"Last {months} months",
-#             "monthly_scores": monthly_data if monthly_data else [],
-#             "debug_info": {
-#                 "date_range": {
-#                     "start": start_date.isoformat(),
-#                     "end": current_date.isoformat()
-#                 },
-#                 "documents_found": len(test_docs)
-#             }
-#         }
+        # Calculate averages and format results
+        monthly_scores = []
         
-#     except Exception as e:
-#         raise HTTPException(
-#             status_code=500,
-#             detail=f"Error retrieving monthly scores: {str(e)}"
-#         )
+        for year_month, data in sorted(months_data.items()):
+            year, month = year_month.split("-")
+            avg_score = data["total"] / data["count"]
+            
+            monthly_scores.append({
+                "year": int(year),
+                "month": int(month),
+                "average_score": round(avg_score, 2),
+                "session_count": data["count"]
+            })
+        
+        # Fill in missing months with zero scores to ensure continuity
+        filled_monthly_scores = []
+        
+        for m in range(months):
+            target_date = current_date - timedelta(days=30*(months-m-1))
+            target_year = target_date.year
+            target_month = target_date.month
+            
+            # Check if we have data for this month
+            found = False
+            for score_data in monthly_scores:
+                if score_data["year"] == target_year and score_data["month"] == target_month:
+                    filled_monthly_scores.append(score_data)
+                    found = True
+                    break
+            
+            # If no data, add a zero entry
+            if not found:
+                filled_monthly_scores.append({
+                    "year": target_year,
+                    "month": target_month,
+                    "average_score": 0,
+                    "session_count": 0
+                })
+        
+        return {
+            "user_id": user_id,
+            "time_period": f"Last {months} months",
+            "monthly_scores": filled_monthly_scores
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving monthly scores: {str(e)}", exc_info=True)
+        return {
+            "user_id": user_id,
+            "time_period": f"Last {months} months",
+            "monthly_scores": [],
+            "error": str(e)
+        }
      
 @app.get("/get_mock_interview/{user_id}")
 async def get_mock_interview(user_id: str):
@@ -696,6 +717,59 @@ async def get_mock_interview(user_id: str):
         return {"mock_interviews": mock_interviews}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving mock interviews: {str(e)}")
+
+@app.get("/test_scores/{user_id}")
+async def get_test_scores(user_id: str, limit: int = 10):
+    """Get individual test scores for a user, with most recent first"""
+    try:
+        # Verify the user exists
+        if collection.count_documents({"user_id": user_id}) == 0:
+            logger.warning(f"User {user_id} not found in the database")
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Get all completed interviews for the user, sort by timestamp descending
+        interviews = list(collection.find({
+            "user_id": user_id,
+            "completed": True,
+            "evaluation.score": {"$exists": True}
+        }, {
+            "_id": 0,
+            "session_id": 1,
+            "timestamp": 1,
+            "evaluation.score": 1
+        }).sort("timestamp", -1).limit(limit))
+        
+        logger.info(f"Found {len(interviews)} completed interviews for user {user_id}")
+        
+        # Format the results
+        test_scores = []
+        for i, interview in enumerate(reversed(interviews), 1):  # Reverse to show oldest first
+            score = interview.get("evaluation", {}).get("score", 0)
+            timestamp = interview.get("timestamp")
+            
+            test_scores.append({
+                "test_number": i,
+                "session_id": interview.get("session_id"),
+                "score": score,
+                "timestamp": timestamp.isoformat() if timestamp else None
+            })
+        
+        return {
+            "user_id": user_id,
+            "total_tests": len(test_scores),
+            "test_scores": test_scores
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving test scores: {str(e)}", exc_info=True)
+        return {
+            "user_id": user_id,
+            "total_tests": 0,
+            "test_scores": [],
+            "error": str(e)
+        }
 
 @app.get("/")
 def root():
