@@ -25,33 +25,7 @@ interface EvaluationScore {
   score: number;
 }
 
-// Mock interview data
-const mockInterviews = [
-  {
-    id: "int-001",
-    date: "2023-10-15",
-    position: "Frontend Developer",
-    company: "Tech Solutions Inc.",
-    duration: "45 minutes",
-    score: 85,
-  },
-  {
-    id: "int-002",
-    date: "2023-10-10",
-    position: "UX Designer",
-    company: "Creative Minds",
-    duration: "30 minutes",
-    score: 78,
-  },
-  {
-    id: "int-003",
-    date: "2023-10-05",
-    position: "Product Manager",
-    company: "Innovate Labs",
-    duration: "60 minutes",
-    score: 92,
-  },
-];
+
 
 export default function DashboardPage() {
   const [user, setUser] = useState<any>(null);
@@ -279,73 +253,6 @@ export default function DashboardPage() {
             <div className="flex-[0.3] flex flex-col gap-4 justify-between">
               <RadarGraph evaluations={evaluations}/>
               <Count_tests count={stats.total_interviews}/>
-            </div>
-          </div>
-
-
-
-          {/* Recent Interviews */}
-          <div>
-            <h2 className="text-xl font-bold mb-4">Recent Interviews</h2>
-            <div className="space-y-4">
-              {mockInterviews.map((interview) => (
-                <motion.div
-                  key={interview.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-700 transition-all duration-200"
-                >
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-start gap-4">
-                      <div className="bg-gray-800 p-2 rounded-lg">
-                        <FileText className="h-6 w-6 text-blue-500" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold">{interview.position}</h3>
-                        <p className="text-sm text-gray-400">
-                          {interview.company}
-                        </p>
-                        <div className="flex items-center gap-4 mt-2">
-                          <span className="text-xs text-gray-500 flex items-center">
-                            <Calendar className="h-3 w-3 mr-1" />
-                            {new Date(interview.date).toLocaleDateString()}
-                          </span>
-                          <span className="text-xs text-gray-500 flex items-center">
-                            <Clock className="h-3 w-3 mr-1" />
-                            {interview.duration}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="flex flex-col items-end">
-                        <div className="text-sm font-medium">Score</div>
-                        <div
-                          className={`text-lg font-bold ${
-                            interview.score >= 90
-                              ? "text-green-500"
-                              : interview.score >= 80
-                              ? "text-blue-500"
-                              : interview.score >= 70
-                              ? "text-yellow-500"
-                              : "text-red-500"
-                          }`}
-                        >
-                          {interview.score}%
-                        </div>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-gray-700"
-                      >
-                        View Details
-                      </Button>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
             </div>
           </div>
         </motion.div>
