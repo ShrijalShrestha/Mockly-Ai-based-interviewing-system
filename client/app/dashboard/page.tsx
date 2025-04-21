@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { RadarGraph } from "../../components/Radar_Chart";
 import { Doted_Graph } from "@/components/Doted-Graph";
 import { Count_tests } from "@/components/Count-tests";
+import { TestHistory } from "@/components/TestHistory";
 
 interface UserStats {
   average_score: number;
@@ -253,6 +254,34 @@ export default function DashboardPage() {
             <div className="flex-[0.3] flex flex-col gap-4 justify-between">
               <RadarGraph evaluations={evaluations}/>
               <Count_tests count={stats.total_interviews}/>
+            </div>
+          </div>
+
+          {/* Recent Interviews */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="md:col-span-1">
+              <TestHistory userId={user?.uid} />
+            </div>
+            <div className="md:col-span-1">
+              <Card className="bg-gray-900 border-gray-800 h-full">
+                <CardHeader>
+                  <CardTitle>Interview Tips</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <h3 className="font-semibold">Prepare Concise Answers</h3>
+                    <p className="text-sm text-gray-400">Practice the STAR method (Situation, Task, Action, Result) for behavioral questions.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="font-semibold">Research the Company</h3>
+                    <p className="text-sm text-gray-400">Understand the company's values, products, and recent news before your interview.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="font-semibold">Body Language Matters</h3>
+                    <p className="text-sm text-gray-400">Maintain eye contact, sit up straight, and use natural hand gestures to appear confident.</p>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
         </motion.div>
