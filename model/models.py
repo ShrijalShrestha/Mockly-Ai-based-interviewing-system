@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from typing import List, Dict
 from datetime import datetime
 
+# Pydantic Models
 class ResumeRequest(BaseModel):
     user_id: str
     resume_text: str
