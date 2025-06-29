@@ -11,7 +11,6 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "Mockly - AI Agentic Mock Interview System",
   description: "Ace your next interview with AI-powered mock sessions",
-    generator: 'v0.dev'
 }
 
 export default function RootLayout({

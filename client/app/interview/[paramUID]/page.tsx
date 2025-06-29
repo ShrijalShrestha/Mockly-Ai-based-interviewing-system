@@ -16,6 +16,8 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from "@/components/ui/use-toast"
 import { use } from "react"
+import { VideoSection } from "@/components/interview/VideoSection"
+import { ChatPanel } from "@/components/interview/ChatPanel"
 
 interface Message {
   id: string
@@ -216,31 +218,46 @@ export default function InterviewPage({ params }: { params: Promise<{ paramUID: 
       setLoading(false)
     })
 
-    // Initialize speech recognition
+    // Improved SpeechRecognition setup
     if ("SpeechRecognition" in window || "webkitSpeechRecognition" in window) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-      recognitionRef.current = new SpeechRecognition()
-      recognitionRef.current.continuous = true
-      recognitionRef.current.interimResults = true
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+      recognitionRef.current.lang = "en-US";
+
+      recognitionRef.current.onstart = () => {
+        console.log("Speech recognition started");
+      };
 
       recognitionRef.current.onresult = (event) => {
-        const transcript = Array.from(event.results)
-          .map((result) => result[0])
-          .map((result) => result.transcript)
-          .join("")
-
-        setMessageInput(transcript)
-      }
+        let finalTranscript = "";
+        let interimTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        setMessageInput(finalTranscript || interimTranscript);
+      };
 
       recognitionRef.current.onerror = (event) => {
-        console.error("Speech recognition error", event.error)
-        setIsListening(false)
+        console.error("Speech recognition error", event.error);
+        setIsListening(false);
         toast({
           title: "Speech Recognition Error",
           description: `Error: ${event.error}. Please try again.`,
           variant: "destructive",
-        })
-      }
+        });
+      };
+
+      recognitionRef.current.onend = () => {
+        console.log("Speech recognition ended");
+        setIsListening(false);
+        setIsRecording(false);
+      };
     }
 
     // Initialize speech synthesis voices
@@ -723,247 +740,38 @@ export default function InterviewPage({ params }: { params: Promise<{ paramUID: 
         >
           {/* Main content area */}
           <div className="flex-1 flex flex-col">
-            {/* Video area */}
-            <Card className="bg-gray-900 border-gray-800 mb-4 flex-1">
-              <CardContent className="p-0 h-full flex flex-col">
-                <div className="relative w-full h-full min-h-[300px] bg-gray-950 rounded-md overflow-hidden">
-                  {/* Video feed */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    {videoEnabled ? (
-                      <video ref={videoRef} autoPlay muted className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gray-900">
-                        <User className="h-20 w-20 text-gray-700" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Current question overlay */}
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-                    <p className="text-sm text-gray-400">Current question:</p>
-                    <p className="text-white font-medium">
-                      {currentQuestion ? currentQuestion.text : "Preparing interview questions..."}
-                    </p>
-                  </div>
-
-                  {/* Session info */}
-                  <div className="absolute top-4 left-4 flex items-center gap-2">
-                    <Badge variant="outline" className="bg-gray-900/80 text-white border-gray-700">
-                      Session: {paramUID.substring(0, 8)}
-                    </Badge>
-                    <Badge variant="outline" className="bg-red-900/80 text-white border-red-700 animate-pulse">
-                      REC
-                    </Badge>
-                    {isRecording && (
-                      <Badge variant="outline" className="bg-green-900/80 text-white border-green-700 animate-pulse">
-                        MIC ACTIVE
-                      </Badge>
-                    )}
-                  </div>
-
-                  {/* AI interviewer picture-in-picture */}
-                  <div className="absolute top-4 right-4 w-32 h-24 bg-gray-800 rounded-md overflow-hidden border border-gray-700 shadow-lg">
-                    <div className="w-full h-full flex items-center justify-center bg-gray-900">
-                      <Bot className="h-10 w-10 text-blue-500" />
-                    </div>
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/50 py-1 px-2">
-                      <p className="text-xs text-white text-center">AI Interviewer</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Video controls */}
-                <div className="p-4 flex items-center justify-center gap-4">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className={`rounded-full ${!micEnabled ? "bg-red-900/20 text-red-500 border-red-800" : "border-gray-700"}`}
-                    onClick={toggleMic}
-                  >
-                    {micEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className={`rounded-full ${!videoEnabled ? "bg-red-900/20 text-red-500 border-red-800" : "border-gray-700"}`}
-                    onClick={toggleVideo}
-                  >
-                    {videoEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className={`rounded-full ${!audioEnabled ? "bg-red-900/20 text-red-500 border-red-800" : "border-gray-700"}`}
-                    onClick={toggleAudio}
-                  >
-                    {audioEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
-                  </Button>
-                  <Button
-                    variant={isListening ? "destructive" : "outline"}
-                    className="rounded-full px-6"
-                    onClick={toggleSpeechRecognition}
-                  >
-                    {isListening ? "Stop Recording" : "Record Answer"}
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    className="rounded-full px-6"
-                    onClick={completeInterview}
-                    disabled={isCompleting}
-                  >
-                    {isCompleting ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Completing...
-                      </>
-                    ) : (
-                      "End Interview"
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <VideoSection
+              videoRef={videoRef}
+              videoEnabled={videoEnabled}
+              micEnabled={micEnabled}
+              audioEnabled={audioEnabled}
+              isRecording={isRecording}
+              isListening={isListening}
+              isCompleting={isCompleting}
+              paramUID={paramUID}
+              currentQuestion={currentQuestion}
+              toggleMic={toggleMic}
+              toggleVideo={toggleVideo}
+              toggleAudio={toggleAudio}
+              toggleSpeechRecognition={toggleSpeechRecognition}
+              completeInterview={completeInterview}
+            />
           </div>
 
           {/* Chat panel */}
           <div className="w-full lg:w-96 flex flex-col">
-            <Tabs defaultValue="chat" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 bg-gray-900 border-gray-800">
-                <TabsTrigger value="chat">Chat</TabsTrigger>
-                <TabsTrigger value="notes">Notes</TabsTrigger>
-              </TabsList>
-              <TabsContent value="chat" className="mt-0">
-                <Card className="bg-gray-900 border-gray-800">
-                  <CardContent className="p-0">
-                    <div className="flex flex-col h-[500px]">
-                      {/* Messages area */}
-                      <ScrollArea className="flex-1 p-4">
-                        <div className="space-y-4">
-                          {initializing && (
-                            <div className="flex justify-center py-8">
-                              <div className="flex flex-col items-center gap-3">
-                                <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-                                <p className="text-gray-400 text-sm">Initializing interview...</p>
-                              </div>
-                            </div>
-                          )}
-
-                          <AnimatePresence>
-                            {messages.map((message) => (
-                              <motion.div
-                                key={message.id}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ duration: 0.3 }}
-                                className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}
-                              >
-                                <div className="flex items-start gap-2 max-w-[80%]">
-                                  {message.sender === "ai" && (
-                                    <Avatar className="h-8 w-8 mt-1">
-                                      <AvatarFallback className="bg-blue-950 text-blue-400">AI</AvatarFallback>
-                                    </Avatar>
-                                  )}
-                                  <div
-                                    className={`rounded-lg px-4 py-2 ${
-                                      message.sender === "user" ? "bg-blue-600 text-white" : "bg-gray-800 text-gray-100"
-                                    }`}
-                                  >
-                                    <p className="text-sm">{message.text}</p>
-                                    <p className="text-xs opacity-70 mt-1">
-                                      {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                    </p>
-                                  </div>
-                                  {message.sender === "user" && (
-                                    <Avatar className="h-8 w-8 mt-1">
-                                      <AvatarFallback className="bg-gray-700">
-                                        {user?.displayName?.charAt(0) || user?.email?.charAt(0) || "U"}
-                                      </AvatarFallback>
-                                    </Avatar>
-                                  )}
-                                </div>
-                              </motion.div>
-                            ))}
-
-                            {isAiTyping && (
-                              <motion.div
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className="flex justify-start"
-                              >
-                                <div className="flex items-start gap-2 max-w-[80%]">
-                                  <Avatar className="h-8 w-8 mt-1">
-                                    <AvatarFallback className="bg-blue-950 text-blue-400">AI</AvatarFallback>
-                                  </Avatar>
-                                  <div className="rounded-lg px-4 py-2 bg-gray-800 text-gray-100">
-                                    <div className="flex gap-1">
-                                      <span className="animate-bounce">•</span>
-                                      <span className="animate-bounce" style={{ animationDelay: "0.2s" }}>
-                                        •
-                                      </span>
-                                      <span className="animate-bounce" style={{ animationDelay: "0.4s" }}>
-                                        •
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                          <div ref={messagesEndRef} />
-                        </div>
-                      </ScrollArea>
-
-                      {/* Input area */}
-                      <div className="p-3 border-t border-gray-800">
-                        <div className="flex gap-2">
-                          <Textarea
-                            placeholder="Type your response or use voice recording..."
-                            className="min-h-[60px] bg-gray-800 border-gray-700 resize-none"
-                            value={messageInput}
-                            onChange={(e) => setMessageInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault()
-                                handleSendMessage()
-                              }
-                            }}
-                          />
-                          <Button
-                            size="icon"
-                            className="h-auto bg-blue-600 hover:bg-blue-700"
-                            onClick={handleSendMessage}
-                            disabled={!messageInput.trim()}
-                          >
-                            <Send className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <div className="flex justify-between items-center mt-2">
-                          <p className="text-xs text-gray-500">Press Enter to send, Shift+Enter for new line</p>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-xs text-gray-400"
-                            onClick={toggleSpeechRecognition}
-                          >
-                            {isListening ? "Stop Recording" : "Record Answer"}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              <TabsContent value="notes" className="mt-0">
-                <Card className="bg-gray-900 border-gray-800">
-                  <CardContent className="p-4">
-                    <Textarea
-                      placeholder="Take notes during your interview..."
-                      className="min-h-[460px] bg-gray-800 border-gray-700"
-                    />
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
+            <ChatPanel
+              initializing={initializing}
+              messages={messages}
+              isAiTyping={isAiTyping}
+              user={user}
+              messageInput={messageInput}
+              isListening={isListening}
+              messagesEndRef={messagesEndRef}
+              handleSendMessage={handleSendMessage}
+              setMessageInput={setMessageInput}
+              toggleSpeechRecognition={toggleSpeechRecognition}
+            />
           </div>
         </motion.div>
       </div>
