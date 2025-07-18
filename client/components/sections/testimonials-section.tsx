@@ -6,7 +6,7 @@ import TestimonialCard from "@/components/cards/testimonial-card"
 export default function TestimonialsSection() {
   return (
     <section className="py-20 bg-gray-950 relative">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom,rgba(0,255,255,0.1),transparent_70%)]"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom,rgba(255,115,0,0.08),transparent_70%)]"></div>
 
       <div className="container mx-auto px-4 relative z-10">
         <motion.div
@@ -18,13 +18,13 @@ export default function TestimonialsSection() {
         >
           <div className="inline-block mb-2">
             <div className="relative">
-              <div className="px-3 py-1 text-sm bg-gray-900 rounded-lg border border-cyan-500/30 relative z-10">
+              <div className="px-3 py-1 text-sm bg-gray-900 rounded-lg border border-orange-500/30 relative z-10">
                 Testimonials
               </div>
-              <div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-fuchsia-500 rounded-lg blur opacity-30"></div>
+              <div className="absolute -inset-0.5 bg-gradient-to-r from-orange-500 to-orange-400 rounded-lg blur opacity-30"></div>
             </div>
           </div>
-          <h2 className="text-3xl md:text-4xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-fuchsia-400">
+          <h2 className="text-3xl md:text-4xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-orange-500 to-orange-300">
             What Our Users Say
           </h2>
           <p className="text-gray-400 max-w-2xl mx-auto">
@@ -56,4 +56,3 @@ export default function TestimonialsSection() {
     </section>
   )
 }
-

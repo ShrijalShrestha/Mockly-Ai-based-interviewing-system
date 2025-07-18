@@ -26,8 +26,6 @@ interface EvaluationScore {
   score: number;
 }
 
-
-
 export default function DashboardPage() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -39,6 +37,7 @@ export default function DashboardPage() {
   });
   const [evaluations, setEvaluations] = useState<EvaluationScore[]>([]);
   let evaluationScores: EvaluationScore[] = [];
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
@@ -53,33 +52,30 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchData = async () => {
       if (!user?.uid) return;
-      
+
       try {
         setLoading(true);
-        
+
         const [statsRes, evaluationsRes] = await Promise.all([
           fetch(`${process.env.NEXT_PUBLIC_FASTAPI_URL}/user_stats/${user.uid}`),
-          fetch(`${process.env.NEXT_PUBLIC_FASTAPI_URL}/performance_evaluations/${user.uid}`)
+          fetch(`${process.env.NEXT_PUBLIC_FASTAPI_URL}/performance_evaluations/${user.uid}`),
         ]);
 
-        // Handle stats response
         let statsData = {
           average_score: 0,
           total_time_minutes: 0,
-          total_interviews: 0
+          total_interviews: 0,
         };
-        
+
         if (statsRes.ok) {
           const data = await statsRes.json();
           statsData = {
             average_score: data.average_score ?? 0,
             total_time_minutes: data.total_time_minutes ?? 0,
-            total_interviews: data.total_interviews ?? 0
+            total_interviews: data.total_interviews ?? 0,
           };
         }
 
-        // Handle evaluations response
-        
         if (evaluationsRes.ok) {
           const data = await evaluationsRes.json();
           evaluationScores = data.evaluation_scores ?? [];
@@ -87,15 +83,12 @@ export default function DashboardPage() {
 
         setStats(statsData);
         setEvaluations(evaluationScores);
-        console.log("Stasts:", statsData);
-        console.log("Evaluations:", evaluationScores);
       } catch (err) {
         console.error("Error fetching data:", err);
-        // Reset to defaults on error
         setStats({
           average_score: 0,
           total_time_minutes: 0,
-          total_interviews: 0
+          total_interviews: 0,
         });
         setEvaluations([]);
       } finally {
@@ -167,9 +160,9 @@ export default function DashboardPage() {
           className="flex flex-col gap-8"
         >
           {/* Welcome Section */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-blue-900/30 to-purple-900/30 p-6 rounded-xl border border-gray-800">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-orange-900/30 to-orange-800/30 p-6 rounded-xl border border-gray-800">
             <div className="flex items-center gap-4">
-              <div className="h-12 w-12 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-lg">
+              <div className="h-12 w-12 rounded-full bg-gradient-to-r from-orange-500 to-orange-400 flex items-center justify-center text-white font-bold text-lg">
                 {user?.displayName?.charAt(0) || user?.email?.charAt(0) || "U"}
               </div>
               <div>
@@ -183,12 +176,13 @@ export default function DashboardPage() {
             </div>
             <Button
               onClick={startNewInterview}
-              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+              className="bg-gradient-to-r from-orange-500 to-orange-400 hover:from-orange-600 hover:to-orange-500"
             >
               <Plus className="mr-2 h-4 w-4" />
               Start New Interview
             </Button>
           </div>
+
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card className="bg-gray-900 border-gray-800">
@@ -199,10 +193,8 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center">
-                  <Calendar className="h-5 w-5 text-blue-500 mr-2" />
-                  <span className="text-2xl font-bold">
-                    {stats?.total_interviews}
-                  </span>
+                  <Calendar className="h-5 w-5 text-orange-400 mr-2" />
+                  <span className="text-2xl font-bold">{stats?.total_interviews}</span>
                 </div>
               </CardContent>
             </Card>
@@ -215,10 +207,8 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center">
-                  <BarChart3 className="h-5 w-5 text-green-500 mr-2" />
-                  <span className="text-2xl font-bold">
-                    {stats?.average_score}%
-                  </span>
+                  <BarChart3 className="h-5 w-5 text-orange-400 mr-2" />
+                  <span className="text-2xl font-bold">{stats?.average_score}%</span>
                 </div>
               </CardContent>
             </Card>
@@ -231,33 +221,26 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center">
-                  <Clock className="h-5 w-5 text-purple-500 mr-2" />
-                  <span className="text-2xl font-bold">
-                    {stats?.total_time_minutes} min
-                  </span>
+                  <Clock className="h-5 w-5 text-orange-400 mr-2" />
+                  <span className="text-2xl font-bold">{stats?.total_time_minutes} min</span>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-
-
           {/* Graphs */}
           <div className="flex w-full gap-4 items-stretch">
-            {/* Left Section: Graph (70%) */}
             <div className="flex-[0.7]">
               <Doted_Graph userId={user?.uid} />
             </div>
 
-
-            {/* Right Section: Radar & Count Tests (30%) */}
             <div className="flex-[0.3] flex flex-col gap-4 justify-between">
-              <RadarGraph evaluations={evaluations}/>
-              <Count_tests count={stats.total_interviews}/>
+              <RadarGraph evaluations={evaluations} />
+              <Count_tests count={stats.total_interviews} />
             </div>
           </div>
 
-          {/* Recent Interviews */}
+          {/* Recent Interviews and Tips */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-1">
               <TestHistory userId={user?.uid} />
@@ -270,15 +253,21 @@ export default function DashboardPage() {
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <h3 className="font-semibold">Prepare Concise Answers</h3>
-                    <p className="text-sm text-gray-400">Practice the STAR method (Situation, Task, Action, Result) for behavioral questions.</p>
+                    <p className="text-sm text-gray-400">
+                      Practice the STAR method (Situation, Task, Action, Result) for behavioral questions.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <h3 className="font-semibold">Research the Company</h3>
-                    <p className="text-sm text-gray-400">Understand the company's values, products, and recent news before your interview.</p>
+                    <p className="text-sm text-gray-400">
+                      Understand the company's values, products, and recent news before your interview.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <h3 className="font-semibold">Body Language Matters</h3>
-                    <p className="text-sm text-gray-400">Maintain eye contact, sit up straight, and use natural hand gestures to appear confident.</p>
+                    <p className="text-sm text-gray-400">
+                      Maintain eye contact, sit up straight, and use natural hand gestures to appear confident.
+                    </p>
                   </div>
                 </CardContent>
               </Card>

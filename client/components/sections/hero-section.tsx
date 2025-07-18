@@ -15,7 +15,6 @@ interface HeroSectionProps {
 }
 
 export default function HeroSection({ isHovered, setIsHovered }: HeroSectionProps) {
-  // Animation variants
   const fadeIn = {
     hidden: { opacity: 0, y: 20 },
     visible: {
@@ -46,13 +45,11 @@ export default function HeroSection({ isHovered, setIsHovered }: HeroSectionProp
           <motion.div initial="hidden" animate="visible" variants={staggerChildren} className="space-y-6">
             <motion.h1 variants={fadeIn} className="text-4xl md:text-6xl font-bold">
               Ace Your Next Interview with{" "}
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-fuchsia-500 relative">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-orange-500 to-orange-300 relative">
                 AI-Powered
                 <motion.span
-                  className="absolute -inset-1 bg-gradient-to-r from-cyan-500 to-fuchsia-500 blur opacity-30"
-                  animate={{
-                    opacity: [0.2, 0.5, 0.2],
-                  }}
+                  className="absolute -inset-1 bg-gradient-to-r from-orange-500 to-orange-400 blur opacity-30"
+                  animate={{ opacity: [0.2, 0.5, 0.2] }}
                   transition={{ duration: 3, repeat: Number.POSITIVE_INFINITY }}
                 />
               </span>{" "}
@@ -68,15 +65,15 @@ export default function HeroSection({ isHovered, setIsHovered }: HeroSectionProp
               <Link href="/signup">
                 <Button
                   size="lg"
-                  className="relative bg-gray-900 border border-cyan-500/50 hover:border-cyan-400 text-white px-8 py-6 text-lg rounded-xl shadow-[0_0_15px_rgba(0,255,255,0.3)] hover:shadow-[0_0_25px_rgba(0,255,255,0.5)] transition-all duration-300 group overflow-hidden"
+                  className="relative bg-gray-900 border border-orange-500/50 hover:border-orange-400 text-white px-8 py-6 text-lg rounded-xl shadow-[0_0_15px_rgba(255,115,0,0.3)] hover:shadow-[0_0_25px_rgba(255,115,0,0.5)] transition-all duration-300 group overflow-hidden"
                   onMouseEnter={() => setIsHovered(true)}
                   onMouseLeave={() => setIsHovered(false)}
                 >
-                  <span className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
+                  <span className="absolute inset-0 bg-gradient-to-r from-orange-500/10 to-orange-400/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
                   <span className="relative z-10 flex items-center">
                     Start Your Free Mock Interview
                     <motion.div animate={{ x: isHovered ? 5 : 0 }} transition={{ duration: 0.2 }}>
-                      <ArrowRight className="ml-2 h-5 w-5 text-cyan-400" />
+                      <ArrowRight className="ml-2 h-5 w-5 text-orange-400" />
                     </motion.div>
                   </span>
                 </Button>
@@ -97,4 +94,3 @@ export default function HeroSection({ isHovered, setIsHovered }: HeroSectionProp
     </section>
   )
 }
-
